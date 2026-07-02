@@ -1,0 +1,2 @@
+pnpm lint-staged
+uv run pre-commit run --hook-stage pre-commit

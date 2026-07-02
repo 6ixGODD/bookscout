@@ -1,0 +1,142 @@
+# Source directories to format and lint
+src = ["pyproject.toml", "python"]
+
+# Exclude a variety of commonly ignored directories
+exclude = [
+    ".bzr",
+    ".direnv",
+    ".eggs",
+    ".git",
+    ".git-rewrite",
+    ".hg",
+    ".ipynb_checkpoints",
+    ".mypy_cache",
+    ".nox",
+    ".pants.d",
+    ".pyenv",
+    ".pytest_cache",
+    ".pytype",
+    ".ruff_cache",
+    ".svn",
+    ".tox",
+    ".venv",
+    ".vscode",
+    "__pypackages__",
+    "_build",
+    "buck-out",
+    "build",
+    "dist",
+    "site-packages",
+    "venv",
+]
+
+# Always exclude the specified paths, even if explicitly included
+force-exclude = true
+
+# Set the maximum line length and indent width
+line-length = 120
+indent-width = 4
+
+# Target Python version
+target-version = "py313"
+
+[lint]
+# Enable specific rule sets
+select = [
+    "E",     # pycodestyle errors
+    "W",     # pycodestyle warnings
+    "F",     # pyflakes
+    "I",     # isort (import sorting)
+    "N",     # pep8-naming (naming conventions)
+    "UP",    # pyupgrade (modern Python syntax)
+    "B",     # flake8-bugbear (common bugs)
+    "C4",    # flake8-comprehensions (list/dict comprehensions)
+    "SIM",   # flake8-simplify (code simplification)
+    "RET",   # flake8-return (return statements)
+    "ARG",   # flake8-unused-arguments
+    "PTH",   # flake8-use-pathlib (prefer pathlib over os.path)
+    "PLE",   # pylint (code quality and complexity)
+    "RUF",   # Ruff-specific rules
+]
+
+# Ignore specific rules
+ignore = [
+    "B008",  # Do not warn about function calls in default arguments
+    "E501",
+    "E741",  # Do not warn about possible assignments in expressions (e.g., in comprehensions)
+    "PLR0913",
+    "PLR2004",
+    "N801",
+    "N802",
+    "RUF001",  # There are some Chinese characters in comments and docstrings
+    "RUF002",  # There are some Chinese characters in comments and docstrings
+    "RUF012",
+    "ARG002",  # like ctx, it is often required by framework signatures
+    "UP046",
+]
+
+[lint.isort]
+# Sort imports taking into account case sensitivity.
+case-sensitive = true
+
+# Combine as imports on the same line
+combine-as-imports = true
+
+# Force each import to be on its own line
+force-single-line = true
+
+# Sort imports alphabetically within sections
+force-sort-within-sections = true
+
+# Define the order of import sections
+section-order = [
+    "future",
+    "standard-library",
+    "third-party",
+    "first-party",
+    "local-folder",
+]
+
+# Specify first-party packages for proper import grouping
+known-first-party = ["bookscout"]
+
+# Force import from statements with multiple members and at least one alias (e.g., import A as B) to wrap such that
+# every line contains exactly one member. For example, this formatting would be retained, rather than condensing to a
+# single line:
+force-wrap-aliases = true
+
+[lint.pydocstyle]
+# Use Google-style docstring convention
+convention = "google"
+
+[lint.pylint]
+# Maximum number of arguments for function
+max-args = 6
+
+# Maximum number of local variables in function
+max-locals = 20
+
+# Maximum number of branch statements in function
+max-branches = 15
+
+[format]
+# Use double quotes for strings (like Black)
+quote-style = "double"
+
+# Indent with spaces rather than tabs (like Black)
+indent-style = "space"
+
+# Respect magic trailing commas for multi-line structures (like Black)
+skip-magic-trailing-comma = false
+
+# Automatically detect the appropriate line ending
+line-ending = "auto"
+
+# Enable preview mode for more aggressive formatting
+preview = true
+
+# Enable reformatting of code snippets in docstrings
+docstring-code-format = true
+
+# Format docstring code snippets with a line length of 80
+docstring-code-line-length = 80
