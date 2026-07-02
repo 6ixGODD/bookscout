@@ -1,0 +1,3 @@
+# `bookscout.doccompiler`
+
+::: bookscout.doccompiler

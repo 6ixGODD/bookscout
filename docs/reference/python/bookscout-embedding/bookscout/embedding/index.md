@@ -1,0 +1,3 @@
+# `bookscout.embedding`
+
+::: bookscout.embedding

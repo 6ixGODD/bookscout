@@ -1,0 +1,3 @@
+# `bookscout.filestore`
+
+::: bookscout.filestore

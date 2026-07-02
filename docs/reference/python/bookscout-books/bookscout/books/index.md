@@ -1,0 +1,3 @@
+# `bookscout.books`
+
+::: bookscout.books

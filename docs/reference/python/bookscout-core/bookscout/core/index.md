@@ -1,0 +1,3 @@
+# `bookscout.core`
+
+::: bookscout.core

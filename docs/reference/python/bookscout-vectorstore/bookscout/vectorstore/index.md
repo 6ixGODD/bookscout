@@ -1,0 +1,3 @@
+# `bookscout.vectorstore`
+
+::: bookscout.vectorstore
