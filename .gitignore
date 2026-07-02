@@ -12,6 +12,9 @@ wheels/
 # IDE
 .idea/
 
+# Node
+node_modules/
+
 # Coding Agent
 AGENTS.md
 CLAUDE.md
@@ -26,4 +29,5 @@ demos/
 .env
 .env.local
 
+# Generated docs site
 /site/
