@@ -1,0 +1,60 @@
+[build-system]
+build-backend = "setuptools.build_meta"
+requires = [
+  "setuptools>=68",
+  "wheel",
+]
+
+[project]
+name = "bookscout-llm"
+version = "0.1.0"
+description = ""
+readme = "README.md"
+authors = [
+  { name = "BoChen SHEN", email = "6goddddddd@gmail.com" },
+]
+requires-python = ">=3.12,<3.14"
+classifiers = [
+  "Programming Language :: Python :: 3 :: Only",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+]
+dependencies = [
+  "aiosqlite>=0.22.1",
+  "anthropic>=0.52",
+  "bookscout-core",
+  "bookscout-filestore",
+  "bookscout-logging",
+  "bookscout-sqlite",
+  "bookscout-tools",
+  "openai>=2.44",
+  "pydantic>=2.13.4",
+  "sqlmodel>=0.0.39",
+  "tiktoken>=0.9",
+]
+
+[tool.setuptools]
+package-dir = { "" = "." }
+
+[tool.setuptools.packages.find]
+where = [ "." ]
+include = [ "bookscout.llm*" ]
+
+[tool.setuptools.exclude-package-data]
+"*" = [
+  "**/.ruff_cache/**",
+  "**/__pycache__/**",
+  "**/*.pyc",
+  "**/.mypy_cache/**",
+  "**/.pytest_cache/**",
+  "**/*.egg-info/**",
+  "**/build/**",
+  "**/dist/**",
+]
+
+[tool.uv.sources]
+bookscout-core = { workspace = true }
+bookscout-sqlite = { workspace = true }
+bookscout-logging = { workspace = true }
+bookscout-tools = { workspace = true }
+bookscout-filestore = { workspace = true }
