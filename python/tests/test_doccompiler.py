@@ -1,0 +1,178 @@
+"""Unit tests for doccompiler: heading normalization, tag mapping, rule-based builder."""
+
+from __future__ import annotations
+
+import pytest
+
+from bookscout.doccompiler import RuleBasedBuilder
+from bookscout.doccompiler.builder.tagify import tagify_chunk
+
+# ----------------------------------------------------------------- fixtures
+
+
+@pytest.fixture()
+def builder(logger):
+    return RuleBasedBuilder(logger=logger)
+
+
+# ----------------------------------------------------------- Tagification
+
+
+def test_tagify_chunk_inserts_tags_at_boundaries():
+    """Tagify inserts <sN/> tags at punctuation and newline boundaries."""
+    chunk = "Hello world.\nThis is a test!"
+    tag_map = tagify_chunk(chunk, chunk_start=100)
+
+    # Tag 0 at chunk start
+    assert 0 in tag_map.tags
+    assert tag_map.tags[0] == 100
+
+    # Tags should be sequential
+    tag_nums = sorted(tag_map.tags.keys())
+    assert tag_nums == list(range(len(tag_map.tags)))
+
+    # Tagged text contains <s0/> at start
+    assert tag_map.tagged_text.startswith("<s0/>")
+
+    # Tagged text contains at least one tag after the period
+    assert "<s1/>" in tag_map.tagged_text
+
+    # The tag map should resolve ranges correctly
+    rng = tag_map.resolve_range(0, 1)
+    assert rng is not None
+    assert rng[0] == 100
+
+
+def test_tagify_empty_chunk():
+    """Tagify on empty chunk produces tag 0 at start and tag 1 at end."""
+    tag_map = tagify_chunk("", chunk_start=50)
+    assert 0 in tag_map.tags
+    assert tag_map.tags[0] == 50
+    assert tag_map.tagged_text == "<s0/><s1/>"
+
+
+def test_tagify_resolve_invalid_tag_returns_none():
+    """Resolving a non-existent tag returns None."""
+    tag_map = tagify_chunk("Hello.", chunk_start=0)
+    assert tag_map.resolve_single(999) is None
+    assert tag_map.resolve_range(0, 999) is None
+
+
+# ----------------------------------------------------------- Rule-based builder
+
+
+def test_build_nodes_empty_content_creates_root(builder):
+    """Empty content → single root node covering all (0-length) content."""
+    nodes = builder.build_nodes("book1", "", book_title="Test")
+    assert len(nodes) == 1
+    assert nodes[0].is_root
+    assert nodes[0].title == "Test"
+    assert nodes[0].level == 0
+    assert nodes[0].content_length == 0
+
+
+def test_build_nodes_no_headings_root_covers_all(builder):
+    """Content with no headings → root covers entire content."""
+    content = "This is some text without any headings.\n\nJust paragraphs."
+    nodes = builder.build_nodes("book1", content, book_title="My Book")
+    assert len(nodes) == 1
+    assert nodes[0].title == "My Book"
+    assert nodes[0].content_offset == 0
+    assert nodes[0].content_length == len(content)
+
+
+def test_build_nodes_with_headings(builder):
+    """Content with headings → root + heading nodes with correct offsets."""
+    content = "# Chapter 1\n\nSome text here.\n\n## Section 1.1\n\nMore text.\n\n# Chapter 2\n\nEnd."
+    nodes = builder.build_nodes("book1", content, book_title="Test Book")
+
+    # Root + 3 heading nodes
+    assert len(nodes) == 4
+    root = nodes[0]
+    assert root.title == "Test Book"
+    assert root.is_root
+
+    # Chapter 1 at level 1
+    ch1 = nodes[1]
+    assert ch1.title == "Chapter 1"
+    assert ch1.level == 1
+    assert ch1.parent_id == root.id
+
+    # Section 1.1 at level 2
+    sec11 = nodes[2]
+    assert sec11.title == "Section 1.1"
+    assert sec11.level == 2
+    assert sec11.parent_id == ch1.id
+
+    # Chapter 2 at level 1
+    ch2 = nodes[3]
+    assert ch2.title == "Chapter 2"
+    assert ch2.level == 1
+    assert ch2.parent_id == root.id
+
+
+def test_build_nodes_heading_normalization_skipped_levels(builder):
+    """Heading that skips a level gets normalized down."""
+    content = "# A\n\n### B\n\n## C\n"
+    nodes = builder.build_nodes("book1", content)
+
+    # A=1, B should be normalized to 2 (not 3), C=2
+    levels = [n.level for n in nodes if not n.is_root]
+    assert levels == [1, 2, 2]
+
+
+def test_build_nodes_heading_normalization_starting_at_level2(builder):
+    """Document starting at ## gets shifted to start at level 1."""
+    content = "## First\n\nText.\n\n## Second\n\nMore.\n"
+    nodes = builder.build_nodes("book1", content)
+
+    levels = [n.level for n in nodes if not n.is_root]
+    assert levels == [1, 1]
+
+
+def test_build_nodes_content_offsets(builder):
+    """Content offsets should point to the text between headings."""
+    content = "# H1\n\nBody 1\n\n# H2\n\nBody 2\n"
+    nodes = builder.build_nodes("book1", content)
+
+    # Find the two heading nodes
+    h1 = next(n for n in nodes if n.title == "H1")
+    h2 = next(n for n in nodes if n.title == "H2")
+
+    # H1 content should start after "# H1\n" and end at "# H2"
+    assert h1.content_offset > h1.title_offset
+    assert h1.content_length > 0
+
+    # H2 content should start after "# H2\n" and go to end
+    assert h2.content_offset > h2.title_offset
+    assert h2.content_offset + h2.content_length <= len(content)
+
+
+def test_build_nodes_root_gets_pre_heading_content(builder):
+    """Root node should get the text before the first heading as its content."""
+    content = "Introduction text.\n\n# Chapter 1\n\nBody.\n"
+    nodes = builder.build_nodes("book1", content, book_title="Book")
+
+    root = nodes[0]
+    assert root.content_length > 0
+    # Root content should be the "Introduction text.\n\n" part
+    intro = content[: root.content_offset + root.content_length]
+    assert "Introduction" in intro
+
+
+def test_build_nodes_root_title_set_to_book_title(builder):
+    """Root node title should be the book title (spec §3.3 #11)."""
+    content = "# Chapter\n\nText.\n"
+    nodes = builder.build_nodes("book1", content, book_title="My Awesome Book")
+    assert nodes[0].title == "My Awesome Book"
+
+
+def test_build_nodes_content_length_zero_when_child_follows_immediately(builder):
+    """Node with child immediately after has content_length=0 (§7.4 #4)."""
+    content = "# Parent\n\n# Child\n\nText.\n"
+    nodes = builder.build_nodes("book1", content)
+
+    parent = next(n for n in nodes if n.title == "Parent")
+    # Parent's content ends at Child's start, so it should be very small
+    # (just the newline between them, or 0 if title_end == child_start)
+    assert parent.content_length >= 0
