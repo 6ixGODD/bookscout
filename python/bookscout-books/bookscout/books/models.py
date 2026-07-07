@@ -94,3 +94,34 @@ class BookNodeModel(SQLModel, table=True):
     content_length: int = Field(default=0, nullable=False)
     created_at: float = Field(default_factory=utcnow_ts, nullable=False)
     updated_at: float = Field(default_factory=utcnow_ts, nullable=False)
+
+
+MANIFEST_UNIQUE_SQL: tuple[str, ...] = (
+    "CREATE UNIQUE INDEX IF NOT EXISTS idx_manifest_book_type ON index_manifest (book_id, index_type)",
+)
+
+
+class IndexManifestModel(SQLModel, table=True):
+    """Persistent row recording one derived index's build status for a book.
+
+    Attributes:
+        id: Primary key (gen_id prefix ``iman_``).
+        book_id: Foreign key to ``book.id``.
+        index_type: Index type name ("summary"|"chunk"|"graph"|future).
+        status: Lifecycle: pending|building|built|failed|removed.
+        count: Number of entries the indexer produced.
+        error: Error message when status == "failed"; "" otherwise.
+        built_at: Epoch seconds of successful build; 0.0 if not yet built.
+        created_at: Row creation timestamp (epoch seconds).
+    """
+
+    __tablename__ = "index_manifest"
+
+    id: str = Field(primary_key=True)
+    book_id: str = Field(foreign_key="book.id", index=True)
+    index_type: str
+    status: str = Field(default="pending", index=True)
+    count: int = Field(default=0)
+    error: str = Field(default="")
+    built_at: float = Field(default=0.0)
+    created_at: float = Field(default_factory=utcnow_ts)

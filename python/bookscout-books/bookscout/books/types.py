@@ -53,6 +53,7 @@ class Book:
     content_path: str
     source_path: str
     checksum: str
+    indexes: tuple[str, ...] = ()
 
     @classmethod
     def new(
@@ -101,7 +102,27 @@ class Book:
             content_path=content_path,
             source_path=source_path,
             checksum=checksum,
+            indexes=(),
         )
+
+
+@dataclasses.dataclass(frozen=True, slots=True)
+class IndexInfo:
+    """Snapshot of one index manifest row for a book.
+
+    Attributes:
+        index_type: The index type name ("summary", "chunk", "graph", ...).
+        status: Lifecycle status: pending|building|built|failed|removed.
+        count: Number of entries the indexer produced.
+        error: Error message when status == "failed"; "" otherwise.
+        built_at: Epoch seconds when the index was built; 0.0 if not built.
+    """
+
+    index_type: str
+    status: str
+    count: int
+    error: str
+    built_at: float
 
 
 @dataclasses.dataclass(frozen=True, slots=True)
