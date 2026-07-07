@@ -32,11 +32,14 @@ from .exceptions import NodeNotFoundError
 from .exceptions import StoreError
 from .exceptions import TreeValidationError
 from .exceptions import handle_errors
+from .models import MANIFEST_UNIQUE_SQL
 from .models import NODE_INDEX_SQL
 from .models import BookModel
 from .models import BookNodeModel
+from .models import IndexManifestModel
 from .types import Book
 from .types import BookNode
+from .types import IndexInfo
 
 if t.TYPE_CHECKING:
     from collections.abc import AsyncIterator
@@ -96,8 +99,10 @@ class BooksStore(LoggingMixin, AsyncResourceMixin):
         """Create the base directory, open SQLite, and create schema/indexes."""
         self.base_path.mkdir(parents=True, exist_ok=True)
         await self.sqlite.startup()
-        await self.sqlite.create_all([BookModel, BookNodeModel])
+        await self.sqlite.create_all([BookModel, BookNodeModel, IndexManifestModel])
         for stmt in NODE_INDEX_SQL:
+            await self.sqlite.exec(stmt, readonly=False)
+        for stmt in MANIFEST_UNIQUE_SQL:
             await self.sqlite.exec(stmt, readonly=False)
         await super().startup()
         self.logger.info("books store started", db_path=str(self.db_path))
@@ -199,7 +204,7 @@ class BooksStore(LoggingMixin, AsyncResourceMixin):
 
     @handle_errors(exc_type=StoreError)  # type: ignore[untyped-decorator]
     async def list_books(self) -> list[Book]:
-        """List all books.
+        """List all books, with their built index types populated.
 
         Returns:
             A list of all stored books.
@@ -207,7 +212,18 @@ class BooksStore(LoggingMixin, AsyncResourceMixin):
         async with self.sqlite.session() as session:
             stmt = select(BookModel).order_by(col(BookModel.created_at))
             rows = (await session.execute(stmt)).scalars().all()
-            return [self._model_to_book(r) for r in rows]
+            books = [self._model_to_book(r) for r in rows]
+            for book in books:
+                idx_stmt = select(IndexManifestModel.index_type).where(
+                    IndexManifestModel.book_id == book.id,
+                    IndexManifestModel.status == "built",
+                )
+                idx_rows = (await session.execute(idx_stmt)).scalars().all()
+                import dataclasses
+
+                book_with_idx = dataclasses.replace(book, indexes=tuple(idx_rows))
+                books[books.index(book)] = book_with_idx
+            return books
 
     @handle_errors(exc_type=StoreError)  # type: ignore[untyped-decorator]
     async def create_nodes(self, book_id: str, nodes: Sequence[BookNode]) -> list[BookNode]:
@@ -492,6 +508,105 @@ class BooksStore(LoggingMixin, AsyncResourceMixin):
             raise ContentError(f"CONTENT.md not found: path={path}")
         async with aiofiles.open(path, encoding="utf-8") as f:
             return t.cast(str, await f.read())
+
+    @handle_errors(exc_type=StoreError)  # type: ignore[untyped-decorator]
+    async def list_indexes(self, book_id: str) -> list[IndexInfo]:
+        """List all manifest rows for a book.
+
+        Args:
+            book_id: The book id.
+
+        Returns:
+            List of :class:`IndexInfo` snapshots.
+        """
+        async with self.sqlite.session() as session:
+            stmt = select(IndexManifestModel).where(IndexManifestModel.book_id == book_id)
+            rows = (await session.execute(stmt)).scalars().all()
+            return [
+                IndexInfo(
+                    index_type=r.index_type,
+                    status=r.status,
+                    count=r.count,
+                    error=r.error,
+                    built_at=r.built_at,
+                )
+                for r in rows
+            ]
+
+    async def list_index_types(self, book_id: str) -> set[str]:
+        """Return the set of index types with status ``"built"`` for a book."""
+        infos = await self.list_indexes(book_id)
+        return {i.index_type for i in infos if i.status == "built"}
+
+    @handle_errors(exc_type=StoreError)  # type: ignore[untyped-decorator]
+    async def upsert_index(
+        self,
+        book_id: str,
+        index_type: str,
+        status: str,
+        *,
+        count: int = 0,
+        error: str = "",
+        built_at: float = 0.0,
+    ) -> None:
+        """Insert or update a manifest row for (book_id, index_type)."""
+        from bookscout.core.lib.utils import gen_id
+        from bookscout.core.lib.utils import utcnow_ts
+
+        async with self.sqlite.session() as session:
+            stmt = select(IndexManifestModel).where(
+                IndexManifestModel.book_id == book_id,
+                IndexManifestModel.index_type == index_type,
+            )
+            row = (await session.execute(stmt)).scalars().first()
+            if row is None:
+                session.add(
+                    IndexManifestModel(
+                        id=gen_id(prefix="iman_"),
+                        book_id=book_id,
+                        index_type=index_type,
+                        status=status,
+                        count=count,
+                        error=error,
+                        built_at=built_at if built_at else utcnow_ts(),
+                    )
+                )
+            else:
+                row.status = status
+                row.count = count
+                row.error = error
+                row.built_at = built_at if built_at else (utcnow_ts() if status == "built" else row.built_at)
+            await session.commit()
+
+    @handle_errors(exc_type=StoreError)  # type: ignore[untyped-decorator]
+    async def set_index_status(
+        self,
+        book_id: str,
+        index_type: str,
+        status: str,
+        **fields: t.Any,
+    ) -> None:
+        """Patch the status (and optional fields) of an existing manifest row."""
+        async with self.sqlite.session() as session:
+            stmt = select(IndexManifestModel).where(
+                IndexManifestModel.book_id == book_id,
+                IndexManifestModel.index_type == index_type,
+            )
+            row = (await session.execute(stmt)).scalars().first()
+            if row is None:
+                raise StoreError(f"Manifest row not found: book={book_id} type={index_type}")
+            row.status = status
+            for k, v in fields.items():
+                if hasattr(row, k):
+                    setattr(row, k, v)
+            await session.commit()
+
+    async def all_book_ids(self) -> list[str]:
+        """Return all book ids in creation order."""
+        async with self.sqlite.session() as session:
+            stmt = select(BookModel.id).order_by(col(BookModel.created_at))
+            rows = (await session.execute(stmt)).scalars().all()
+            return list(rows)
 
     @staticmethod
     def _book_to_model(book: Book) -> BookModel:

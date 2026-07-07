@@ -118,7 +118,7 @@ class IndexManifestModel(SQLModel, table=True):
     __tablename__ = "index_manifest"
 
     id: str = Field(primary_key=True)
-    book_id: str = Field(foreign_key="book.id", index=True)
+    book_id: str = Field(foreign_key="books.id", index=True)
     index_type: str
     status: str = Field(default="pending", index=True)
     count: int = Field(default=0)
