@@ -22,6 +22,8 @@ from .compiler import CompileResult
 from .compiler import CompileStage
 from .compiler import CompileStatus
 from .compiler import Compiler
+from .index_provider import IndexProvider
+from .index_registry import IndexRegistry
 from .indexer import IndexProgress
 from .indexer import IndexResult
 from .indexer import Indexer
@@ -48,6 +50,8 @@ __all__ = [
     "EpubParser",
     "EpubSourceMapping",
     "IndexProgress",
+    "IndexProvider",
+    "IndexRegistry",
     "IndexResult",
     "Indexer",
     "LlmToolBuilder",
