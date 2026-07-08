@@ -106,6 +106,7 @@ class BookScoutTui(App[None]):
         text-style: bold;
         padding: 0 0 0 1;
         background: #000000;
+        content-align: left middle;
     }
     #select_input, #chat_input {
         width: 1fr;
