@@ -107,8 +107,8 @@ class BookScoutTui(App[None]):
         background: #000000;
     }
     Input {
-        border-top: thin solid #ffffff;
-        border-bottom: thin solid #ffffff;
+        border-top: solid #ffffff;
+        border-bottom: solid #ffffff;
         border-left: none;
         border-right: none;
         background: #000000;
@@ -117,8 +117,8 @@ class BookScoutTui(App[None]):
         height: 3;
     }
     Input:focus {
-        border-top: thin solid #ffffff;
-        border-bottom: thin solid #ffffff;
+        border-top: solid #ffffff;
+        border-bottom: solid #ffffff;
     }
     Input .input--placeholder {
         color: #444444;
