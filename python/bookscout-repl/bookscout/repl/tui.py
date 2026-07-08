@@ -25,7 +25,9 @@ from textual import on
 from textual.app import App
 from textual.app import ComposeResult
 from textual.containers import Container
+from textual.containers import Horizontal
 from textual.reactive import reactive
+from textual.widgets import Checkbox
 from textual.widgets import Input
 from textual.widgets import ListItem
 from textual.widgets import ListView
@@ -94,7 +96,19 @@ class BookScoutTui(App[None]):
     }
     #input_area {
         height: 3;
+        layout: horizontal;
         padding: 0 0 0 0;
+    }
+    #prompt_prefix {
+        width: 2;
+        height: 3;
+        color: #ffffff;
+        text-style: bold;
+        padding: 0 0 0 1;
+        background: #000000;
+    }
+    #select_input, #chat_input {
+        width: 1fr;
     }
     #error_display {
         color: #cc6666;
@@ -113,15 +127,16 @@ class BookScoutTui(App[None]):
         border-right: none;
         background: #000000;
         color: #c0c0c0;
-        padding: 0 0 0 1;
+        padding: 0 0 0 0;
         height: 3;
     }
     Input:focus {
         border-top: solid #ffffff;
         border-bottom: solid #ffffff;
     }
-    Input .input--placeholder {
-        color: #444444;
+    Checkbox {
+        padding: 0 1;
+        background: #000000;
     }
     ListView > ListItem {
         padding: 0 1;
@@ -180,8 +195,10 @@ class BookScoutTui(App[None]):
                 yield Static("", id="error_display")
             # Index select panel (shown between select and compile).
             with Container(id="index_select_panel"):
-                yield Static("  Indexes to build:", id="index_select_hint")
-                yield Static("", id="index_select_list", classes="log-area")
+                yield Static("Indexes to build:", id="index_select_hint")
+                yield Checkbox("", id="cb_chunk")
+                yield Checkbox("", id="cb_summary")
+                yield Checkbox("", id="cb_graph")
                 yield Static("", id="index_select_error")
             # Compile panel
             with Container(id="compile_panel"):
@@ -191,9 +208,10 @@ class BookScoutTui(App[None]):
             with Container(id="chat_panel"):
                 yield RichLog(id="chat_log", markup=True, wrap=True, classes="log-area")
                 yield Static("", id="chat_spinner_line")
-        with Container(id="input_area"):
-            yield Input(placeholder="> ", id="select_input")
-            yield Input(placeholder="> ", id="chat_input")
+        with Horizontal(id="input_area"):
+            yield Static("> ", id="prompt_prefix")
+            yield Input(id="select_input")
+            yield Input(id="chat_input")
         yield Static("", id="status_bar")
 
     def on_mount(self) -> None:
@@ -261,22 +279,21 @@ class BookScoutTui(App[None]):
     def _header_hint_for_phase(self, phase: str) -> str:
         if phase == "select":
             return (
-                "no. / Enter  select a book    "
-                ":quit  quit    "
-                ":delete N  remove a book    "
-                "path / .pdf / .epub  compile"
+                ":book N  read    "
+                ":compile <path>  add    "
+                ":delete N  remove    "
+                ":quit  quit"
             )
         if phase == "index_select":
-            return "letter (c/s/g)  toggle    Enter  confirm    :back  cancel"
+            return "Space/Enter  toggle    :go  build    :back  cancel"
         if phase == "compile":
             return "compiling..."
         if phase == "chat":
             return (
-                ":quit  quit    "
-                ":back  back to books    "
-                ":clear  clear chat    "
-                ":addindex X / :rmindex X  manage indexes    "
-                ".pdf / .epub  compile"
+                ":back  books    "
+                ":clear  clear    "
+                ":addindex X / :rmindex X  indexes    "
+                ":quit  quit"
             )
         return ""
 
@@ -395,9 +412,49 @@ class BookScoutTui(App[None]):
         if not value:
             return
         self.query_one("#select_input", Input).value = ""
-
+        if not value.startswith(":"):
+            self._set_status("  Unknown command (commands start with `:`)")
+            return
+        low = value.lower()
+        if low in (":q", ":quit", ":exit"):
+            self.exit()
+            return
+        if low == ":back":
+            self._set_status("  already at book list")
+            return
+        # :book N — enter chat for a single book.
+        if low.startswith(":book") or low.startswith(":b "):
+            parts = value.split(None, 1)
+            if len(parts) < 2 or not parts[1].strip():
+                self._set_status("  usage: :book N")
+                return
+            arg = parts[1].strip()
+            if "," in arg:
+                self._set_status("  multi-select not supported yet")
+                return
+            if not arg.isdigit():
+                self._set_status("  usage: :book N")
+                return
+            idx = int(arg) - 1
+            if 0 <= idx < len(self._books):
+                self._enter_chat(self._books[idx])
+            else:
+                self._set_status(f"  no book #{arg}")
+            return
+        # :compile <path> — add a new book.
+        if low.startswith(":compile") or low.startswith(":c "):
+            parts = value.split(None, 1)
+            if len(parts) < 2 or not parts[1].strip():
+                self._set_status("  usage: :compile <path>")
+                return
+            if self._repl_context is None:
+                return
+            path = self._clean_path(parts[1])
+            self._clear_error()
+            self._enter_index_select(path)
+            return
         # :delete N — remove a book and its workspace.
-        if value.lower().startswith(":delete") or value.lower().startswith(":del"):
+        if low.startswith(":delete") or low.startswith(":del"):
             parts = value.split()
             if len(parts) < 2 or not parts[1].isdigit():
                 self._set_status("  usage: :delete N")
@@ -409,21 +466,7 @@ class BookScoutTui(App[None]):
             else:
                 self._set_status(f"  no book #{parts[1]}")
             return
-
-        if value.isdigit():
-            idx = int(value) - 1
-            if 0 <= idx < len(self._books):
-                self._enter_chat(self._books[idx])
-            else:
-                self._set_status(f"  no book #{value}")
-            return
-
-        if self._repl_context is None:
-            return
-        path = self._clean_path(value)
-        self._clear_error()
-        # Enter index-select phase first.
-        self._enter_index_select(path)
+        self._set_status(f"  Unknown command: {value}")
 
     def _enter_index_select(self, source_path: str) -> None:
         """Enter the index-select phase for a new compile."""
@@ -439,34 +482,50 @@ class BookScoutTui(App[None]):
         self._focus_input()
 
     def _render_index_select(self) -> None:
-        """Render the checkbox list for index selection."""
+        """Render the checkbox list for index selection.
+
+        Each Checkbox gets a Rich-Text label: bold display_name + dim description.
+        The Checkbox's ``.value`` is set from ``self._selected_index_types``.
+        """
         assert self._repl_context is not None
         registry = self._repl_context.registry
-        lines: list[str] = ["  Indexes to build:", ""]
         for provider in registry.all():
-            tick = "x" if provider.index_type in self._selected_index_types else " "
-            note = ""
-            if not provider.default_enabled:
-                note = "  (slow, expensive)"
-            lines.append(f"  [{tick}] {provider.short_letter}  {provider.display_name}{note}")
-        lines.append("")
-        lines.append("  Enter: confirm    :back: cancel    type letter to toggle")
-        with contextlib.suppress(Exception):
-            self.query_one("#index_select_list", Static).update("\n".join(lines))
+            cb_id = f"#cb_{provider.index_type}"
+            try:
+                cb = self.query_one(cb_id, Checkbox)
+            except Exception:
+                continue
+            parts: list[Text] = [Text(provider.display_name, style="bold")]
+            if provider.description:
+                parts.append(Text("  "))
+                parts.append(Text(provider.description, style="dim"))
+            cb.label = Text.assemble(*parts)
+            cb.value = provider.index_type in self._selected_index_types
+
+    @on(Checkbox.Changed)
+    def _checkbox_changed(self, event: Checkbox.Changed) -> None:
+        """Keep ``self._selected_index_types`` in sync with the checkbox widgets."""
+        cb_id = event.checkbox.id or ""
+        if not cb_id.startswith("cb_"):
+            return
+        index_type = cb_id[3:]
+        if event.value:
+            self._selected_index_types.add(index_type)
+        else:
+            self._selected_index_types.discard(index_type)
+        names = ", ".join(sorted(self._selected_index_types)) or "none"
+        self._set_status(f"  indexes: {names}")
 
     def _handle_index_select_input(self, text: str) -> None:
-        """Handle input in the index_select phase."""
-        assert self._repl_context is not None
+        """Handle input in the index_select phase.
+
+        Toggle is done via the Checkbox widgets themselves; the input box only
+        accepts `:go`/Enter (confirm), `:back` (cancel), `:quit` (exit).
+        """
         self.query_one("#select_input", Input).value = ""
         low = text.lower().strip()
 
-        if low in (":back", ":cancel", ":select"):
-            self.phase = "select"
-            self._set_status(f"  {len(self._books)} book(s)")
-            self._focus_input()
-            return
-
-        if low == "" or low == ":go" or low == ":ok":
+        if low == "":
             # Empty Enter = confirm.
             if self._selected_index_types:
                 self.run_worker(
@@ -477,17 +536,31 @@ class BookScoutTui(App[None]):
                 self._set_status("  select at least one index")
             return
 
-        # Toggle by letter.
-        registry = self._repl_context.registry
-        for provider in registry.all():
-            if provider.short_letter == low or provider.index_type == low:
-                if provider.index_type in self._selected_index_types:
-                    self._selected_index_types.discard(provider.index_type)
-                else:
-                    self._selected_index_types.add(provider.index_type)
-                self._render_index_select()
-                return
-        self._set_status(f"  unknown: {text}")
+        if not low.startswith(":"):
+            self._set_status("  Unknown command (commands start with `:`)")
+            return
+
+        if low in (":go", ":ok"):
+            if self._selected_index_types:
+                self.run_worker(
+                    self._start_compile(self._compile_source, index_types=self._selected_index_types),
+                    exclusive=True, group="compile",
+                )  # type: ignore[arg-type]
+            else:
+                self._set_status("  select at least one index")
+            return
+
+        if low in (":back", ":cancel", ":select"):
+            self.phase = "select"
+            self._set_status(f"  {len(self._books)} book(s)")
+            self._focus_input()
+            return
+
+        if low in (":q", ":quit", ":exit"):
+            self.exit()
+            return
+
+        self._set_status(f"  Unknown command: {text}")
 
     async def _delete_book(self, book: Book) -> None:
         """Delete a book from the store and remove its workspace dir."""
@@ -667,6 +740,13 @@ class BookScoutTui(App[None]):
 
     # -- Chat phase --
     def _handle_chat_input(self, text: str) -> None:
+        if self.phase == "compile":
+            if text.lower() in (":q", ":quit", ":exit"):
+                self.exit()
+                return
+            self.query_one("#chat_input", Input).value = ""
+            self._set_status("  please wait... compile in progress")
+            return
         if self._chat_busy:
             self._set_status("  please wait...")
             return
@@ -729,17 +809,8 @@ class BookScoutTui(App[None]):
             )  # type: ignore[arg-type]
             return
 
-        cleaned = self._clean_path(text)
-        suffix = pathlib.Path(cleaned).suffix.lower()
-        if suffix in (".pdf", ".epub") and self._repl_context is not None:
-            self._clear_error()
-            self._compile_source = cleaned
-            assert self._repl_context is not None
-            self._selected_index_types = {p.index_type for p in self._repl_context.registry.default_enabled()}
-            self._render_index_select()
-            self.phase = "index_select"
-            self._set_status(f"  select indexes for: {pathlib.Path(cleaned).name}")
-            self._focus_input()
+        if low.startswith(":"):
+            self._set_status(f"  Unknown chat command: {text}")
             return
 
         self.run_worker(self._run_chat(text), exclusive=True, group="chat")  # type: ignore[arg-type]
