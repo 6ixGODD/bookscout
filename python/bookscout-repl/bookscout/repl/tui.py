@@ -2,13 +2,12 @@
 
 Layout::
 
-    Header
-    ─────────────────────  (white thin line)
-    Message area           (chat log or compile log)
-    spinner
-    ─────────────────────  (white thin line)
-    Input
-    ─────────────────────  (white thin line)
+    Header (phase-specific hint)
+    ─────────────────────  (white bold line)
+    Content area           (book list / chat log / compile log / index select)
+    ─────────────────────  (white bold line)
+    > input prompt
+    ─────────────────────  (white bold line)
     Status
 
 Pure black background. No borders. Focus always on input.
@@ -31,6 +30,7 @@ from textual.widgets import Input
 from textual.widgets import ListItem
 from textual.widgets import ListView
 from textual.widgets import RichLog
+from textual.widgets import Rule
 from textual.widgets import Static
 
 from .config import BookScoutConfig
@@ -56,6 +56,24 @@ class BookScoutTui(App[None]):
         color: #888888;
         padding: 0 1;
     }
+    #header {
+        layout: vertical;
+        height: auto;
+        padding: 0 1;
+    }
+    #header_brand {
+        color: #ffffff;
+        text-style: bold;
+        height: 1;
+    }
+    #header_hint {
+        color: #666666;
+        height: auto;
+    }
+    #header_rule {
+        color: #ffffff;
+        height: 1;
+    }
     #main {
         layout: vertical;
         width: 1fr;
@@ -65,8 +83,8 @@ class BookScoutTui(App[None]):
     .log-area {
         height: 1fr;
     }
-    #select_hint {
-        color: #444444;
+    #index_select_hint {
+        color: #c0c0c0;
         height: 1;
     }
     #spinner_line, #chat_spinner_line {
@@ -84,27 +102,26 @@ class BookScoutTui(App[None]):
         height: auto;
         max-height: 6;
     }
-    #select_hint {
-        color: #444444;
-        height: 1;
-    }
     Rule {
         color: #ffffff;
         background: #000000;
     }
     Input {
-        border-top: solid #ffffff;
-        border-bottom: solid #ffffff;
+        border-top: thin solid #ffffff;
+        border-bottom: thin solid #ffffff;
         border-left: none;
         border-right: none;
         background: #000000;
         color: #c0c0c0;
-        padding: 0 1;
+        padding: 0 0 0 1;
         height: 3;
     }
     Input:focus {
-        border-top: solid #ffffff;
-        border-bottom: solid #ffffff;
+        border-top: thin solid #ffffff;
+        border-bottom: thin solid #ffffff;
+    }
+    Input .input--placeholder {
+        color: #444444;
     }
     ListView > ListItem {
         padding: 0 1;
@@ -152,10 +169,13 @@ class BookScoutTui(App[None]):
 
     # -- Composition --
     def compose(self) -> ComposeResult:
+        with Container(id="header"):
+            yield Static("BookScout", id="header_brand")
+            yield Static("", id="header_hint")
+            yield Rule(id="header_rule")
         with Container(id="main"):
             # Select panel
             with Container(id="select_panel"):
-                yield Static("  :quit  |  type a path to compile  |  :delete N to remove a book", id="select_hint")
                 yield ListView(id="books_list", classes="log-area")
                 yield Static("", id="error_display")
             # Index select panel (shown between select and compile).
@@ -172,8 +192,8 @@ class BookScoutTui(App[None]):
                 yield RichLog(id="chat_log", markup=True, wrap=True, classes="log-area")
                 yield Static("", id="chat_spinner_line")
         with Container(id="input_area"):
-            yield Input(placeholder="", id="select_input")
-            yield Input(placeholder="", id="chat_input")
+            yield Input(placeholder="> ", id="select_input")
+            yield Input(placeholder="> ", id="chat_input")
         yield Static("", id="status_bar")
 
     def on_mount(self) -> None:
@@ -223,6 +243,7 @@ class BookScoutTui(App[None]):
     # -- Phase switching --
     def watch_phase(self, phase: str) -> None:
         self._set_panel(phase)
+        self._update_header_hint(phase)
         if phase == "compile":
             self._start_progress_polling()
         else:
@@ -236,6 +257,32 @@ class BookScoutTui(App[None]):
                 self.query_one("#select_input", Input).focus()
             elif self.phase == "chat":
                 self.query_one("#chat_input", Input).focus()
+
+    def _header_hint_for_phase(self, phase: str) -> str:
+        if phase == "select":
+            return (
+                "no. / Enter  select a book    "
+                ":quit  quit    "
+                ":delete N  remove a book    "
+                "path / .pdf / .epub  compile"
+            )
+        if phase == "index_select":
+            return "letter (c/s/g)  toggle    Enter  confirm    :back  cancel"
+        if phase == "compile":
+            return "compiling..."
+        if phase == "chat":
+            return (
+                ":quit  quit    "
+                ":back  back to books    "
+                ":clear  clear chat    "
+                ":addindex X / :rmindex X  manage indexes    "
+                ".pdf / .epub  compile"
+            )
+        return ""
+
+    def _update_header_hint(self, phase: str) -> None:
+        with contextlib.suppress(Exception):
+            self.query_one("#header_hint", Static).update(self._header_hint_for_phase(phase))
 
     def _set_panel(self, phase: str) -> None:
         panel_map = {
@@ -272,19 +319,23 @@ class BookScoutTui(App[None]):
         for idx, book in enumerate(self._books, start=1):
             title = book.title or "(untitled)"
             author = book.author or "Unknown"
-            # Build [csg] indicator.
-            indicator = ""
+            flags: list[Text] = []
             if registry is not None:
                 built = set(book.indexes)
-                parts: list[str] = []
                 for provider in registry.all():
-                    parts.append(provider.short_letter if provider.index_type in built else "-")
-                indicator = f"  [{''.join(parts)}]"
+                    mark = "√" if provider.index_type in built else "×"
+                    style = "bold white" if provider.index_type in built else "dim"
+                    flags.append(Text(f" {mark} {provider.display_name} ", style=style))
+            else:
+                built_count = len(book.indexes) if book.indexes else 0
+                flags.append(Text(f" {built_count} idx", style="dim"))
+
             label = Text.assemble(
                 Text(f"{idx:>2}  ", style="bold"),
-                Text(title),
-                Text(f"  - {author}", style="dim"),
-                Text(indicator, style="bold"),
+                Text(title, style="bold"),
+                Text(f"  {author}", style="dim"),
+                Text("  "),
+                *flags,
             )
             lv.append(ListItem(Static(label)))
 
