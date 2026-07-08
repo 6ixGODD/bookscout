@@ -367,6 +367,9 @@ class ReplContext(LoggingMixin, AsyncResourceMixin):
             llm=self._llm,  # type: ignore[arg-type]
             embedding=self._embedding,  # type: ignore[arg-type]
             logger=self.logger,
+            book_id=book_id,
+            registry=self._registry,
+            books_store=self._books_store,
         )
         await mode.startup()
         self._modes[book_id] = mode

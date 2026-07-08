@@ -36,9 +36,9 @@ import typing as t
 from bookscout.tools import BaseTool
 from bookscout.tools import Property
 
-from ..agent import Agent
-from ..context import AgentContext
-from ..context import AgentRunState
+from .agent import Agent
+from .context import AgentContext
+from .context import AgentRunState
 
 if t.TYPE_CHECKING:
     from bookscout.llm import ChatModel

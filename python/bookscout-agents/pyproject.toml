@@ -20,11 +20,17 @@ classifiers = [
   "Programming Language :: Python :: 3.13",
 ]
 dependencies = [
+  "bookscout-books",
   "bookscout-core",
+  "bookscout-embedding",
+  "bookscout-index-chunk",
+  "bookscout-index-graph",
+  "bookscout-index-summary",
   "bookscout-llm",
   "bookscout-logging",
   "bookscout-sqlite",
   "bookscout-tools",
+  "bookscout-vectorstore",
   "pydantic>=2.13.4",
   "sqlmodel>=0.0.39",
 ]
@@ -50,7 +56,13 @@ include = [ "bookscout.agents*" ]
 
 [tool.uv.sources]
 bookscout-core = { workspace = true }
+bookscout-books = { workspace = true }
+bookscout-embedding = { workspace = true }
+bookscout-index-chunk = { workspace = true }
+bookscout-index-graph = { workspace = true }
+bookscout-index-summary = { workspace = true }
 bookscout-llm = { workspace = true }
 bookscout-tools = { workspace = true }
 bookscout-logging = { workspace = true }
 bookscout-sqlite = { workspace = true }
+bookscout-vectorstore = { workspace = true }

@@ -1,0 +1,29 @@
+# BookScout REPL default config — copy to config.yaml and customize.
+# Environment variables (BOOKSCOUT_*) override these values.
+# CLI flags (--set key=value) override everything.
+
+data_dir: ./data
+
+chatmodel:
+  api_key: ""           # Set via env: BOOKSCOUT_CHATMODEL__API_KEY
+  base_url: "https://api.deepseek.com"
+  model: "deepseek-v4-flash"
+  stateless: true
+
+embedding:
+  api_key: ""           # Set via env: BOOKSCOUT_EMBEDDING__API_KEY
+  base_url: "https://dashscope.aliyuncs.com/compatible-mode/v1"
+  model: "text-embedding-v4"
+  batch_size: 10
+
+mineru:
+  api_token: ""         # Set via env: BOOKSCOUT_MINERU__API_TOKEN
+
+logging:
+  level: "WARNING"      # DEBUG, INFO, WARNING, ERROR
+  file: ""              # Optional log file path
+
+# The `env` section sets environment variables at load time.
+# Useful for secrets you don't want in the YAML itself.
+# env:
+#   MINERU_API_TOKEN: "your-token-here"

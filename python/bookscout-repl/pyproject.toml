@@ -8,7 +8,7 @@ requires = [
 [project]
 name = "bookscout-repl"
 version = "0.1.0"
-description = ""
+description = "BookScout REPL — interactive agent runtime with streaming transport"
 readme = "README.md"
 authors = [
   { name = "BoChen SHEN", email = "6goddddddd@gmail.com" },
@@ -20,8 +20,28 @@ classifiers = [
   "Programming Language :: Python :: 3.13",
 ]
 dependencies = [
-  "protobuf>=7.35.1",
+  "bookscout-agents",
+  "bookscout-books",
+  "bookscout-core",
+  "bookscout-doccompiler",
+  "bookscout-embedding",
+  "bookscout-index-chunk",
+  "bookscout-index-graph",
+  "bookscout-index-summary",
+  "bookscout-llm",
+  "bookscout-logging",
+  "bookscout-tools",
+  "bookscout-vectorstore",
+  "pydantic-settings>=2.14",
+  "python-dotenv>=1.1",
+  "pyyaml>=6.0",
+  "rich>=15.0.0",
+  "textual>=8.2.8",
+  "typer>=0.26.8",
 ]
+
+[project.scripts]
+bookscout-repl = "bookscout.repl.__main__:cli_main"
 
 [tool.setuptools]
 package-dir = { "" = "." }
@@ -41,3 +61,17 @@ include = [ "bookscout.repl*" ]
   "**/build/**",
   "**/dist/**",
 ]
+
+[tool.uv.sources]
+bookscout-agents = { workspace = true }
+bookscout-books = { workspace = true }
+bookscout-core = { workspace = true }
+bookscout-doccompiler = { workspace = true }
+bookscout-embedding = { workspace = true }
+bookscout-index-chunk = { workspace = true }
+bookscout-index-graph = { workspace = true }
+bookscout-index-summary = { workspace = true }
+bookscout-llm = { workspace = true }
+bookscout-logging = { workspace = true }
+bookscout-tools = { workspace = true }
+bookscout-vectorstore = { workspace = true }

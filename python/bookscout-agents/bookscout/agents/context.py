@@ -37,30 +37,13 @@ class AgentRunState(enum.StrEnum):
     ERROR = "error"
 
 
-class TitlePair(t.NamedTuple):
-    """Short and long titles for a conversation."""
-
-    short: str
-    """Short title for display in lists, etc."""
-
-    long: str
-    """Long title for display in conversation view, etc."""
-
-
 class StepResult(t.NamedTuple):
     """Result of a single agent step."""
 
     text: str | None
-    """The assistant's text content, or None if the step produced no text."""
-
     finish_reason: str
-    """Why the step ended — 'stop', 'tool_calls', 'max_tokens', etc."""
-
     usage: dict[str, int]
-    """Token usage stats: input_tokens, output_tokens, etc."""
-
     tool_calls: list[dict[str, t.Any]]
-    """Tool calls emitted (if any), as raw dicts for flexibility."""
 
 
 _ExtraT_co = t.TypeVar("_ExtraT_co", bound=dict[str, t.Any], covariant=True)
