@@ -359,6 +359,12 @@ class Compiler(LoggingMixin, AsyncResourceMixin):
         """
         from bookscout.core.lib.utils import utcnow_ts
 
+        # Seed a `pending` manifest row first so subsequent set_index_status
+        # patches don't blow up with StoreError when the row doesn't exist
+        # (e.g. fresh compile before BUILD_INDEXES).
+        await self._books_store.upsert_index(
+            book_id, indexer.index_type, "pending",
+        )
         await self._books_store.set_index_status(
             book_id, indexer.index_type, "building",
         )

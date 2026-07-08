@@ -208,8 +208,8 @@ async def test_compile_with_index_types_subset(tmp_path, logger):
             pass
         async def build_index(self, book_id, workspace, *, monitor=None, parent_id=None):
             self._ran = True
+            from bookscout.doccompiler import IndexResult
             from bookscout.doccompiler.indexer import IndexProgress
-            from bookscout.doccompiler.indexer import IndexResult
             return IndexResult(index_type=self._it, count=1, progress=IndexProgress(1, 1, "done", ""))
 
     chunk_idx = FakeIndexer("chunk")
@@ -232,6 +232,152 @@ async def test_compile_with_index_types_subset(tmp_path, logger):
     assert selected[0].index_type == "chunk"
 
     await compiler.shutdown()
+    await store.shutdown()
+    await parser.shutdown()
+    await builder.shutdown()
+
+
+@pytest.mark.asyncio()
+async def test_build_one_index_creates_manifest_row_when_absent(tmp_path, logger):
+    """Regression: ``_build_one_index`` must seed a `pending` manifest row before
+    calling ``set_index_status('building')`` — otherwise it errors with
+    ``StoreError('Manifest row not found: ...')`` on a fresh compile (the exact
+    error the user hit on a clean data dir).
+    """
+    from bookscout.books import BooksConfig
+    from bookscout.books import BooksStore
+    from bookscout.doccompiler import Compiler
+    from bookscout.doccompiler import EpubParser
+    from bookscout.doccompiler import RuleBasedBuilder
+    from bookscout.doccompiler.workspace import BookWorkspace
+
+    store = BooksStore(logger=logger, config=BooksConfig(base_path=tmp_path, db_name="books.sqlite"))
+    await store.startup()
+    parser = EpubParser(logger=logger)
+    await parser.startup()
+    builder = RuleBasedBuilder(logger=logger)
+    await builder.startup()
+
+    class FakeIndexer:
+        _it = "chunk"
+        @property
+        def index_type(self): return self._it
+        async def startup(self): pass
+        async def shutdown(self): pass
+        async def build_index(self, book_id, workspace, *, monitor=None, parent_id=None):
+            from bookscout.doccompiler.indexer import IndexProgress
+            from bookscout.doccompiler.indexer import IndexResult
+            return IndexResult(index_type=self._it, count=2, progress=IndexProgress(2, 2, "done", ""))
+
+    compiler = Compiler(
+        logger=logger,
+        parser=parser,
+        books_store=store,
+        builder=builder,
+        indexers=[FakeIndexer()],
+        workspace_base=tmp_path,
+    )
+    await compiler.startup()
+    book_id = "book_test_freshmanifest"
+    # Manifest FK -> books.id: need a row first.
+    from bookscout.books import Book
+    await store.create_book(Book.new(book_id=book_id, title="Test"))
+    workspace = BookWorkspace.create(tmp_path, book_id)
+
+    # Manifest row does NOT exist yet; calling _build_one_index must succeed
+    # and end with status == 'built' (not raise StoreError).
+    result = await compiler._build_one_index(
+        FakeIndexer(), book_id, workspace,
+        monitor=None, parent_id=None, idx_root=None,
+    )
+    assert result.count == 2
+
+    manifest = await store.list_indexes(book_id)
+    chunk_rows = [r for r in manifest if r.index_type == "chunk"]
+    assert len(chunk_rows) == 1
+    assert chunk_rows[0].status == "built"
+    assert chunk_rows[0].count == 2
+
+    await compiler.shutdown()
+    await store.shutdown()
+    await parser.shutdown()
+    await builder.shutdown()
+
+
+@pytest.mark.asyncio()
+async def test_task_manager_run_index_creates_manifest_row_when_absent(tmp_path, logger):
+    """Regression for the same bug via :class:`TaskManager._run_index` — building
+    an index for a book whose manifest row doesn't exist should still succeed
+    instead of raising ``StoreError('Manifest row not found: ...')``.
+    """
+    from bookscout.books import BooksConfig
+    from bookscout.books import BooksStore
+    from bookscout.doccompiler import EpubParser
+    from bookscout.doccompiler import RuleBasedBuilder
+    from bookscout.doccompiler.task_manager import TaskManager
+
+    store = BooksStore(logger=logger, config=BooksConfig(base_path=tmp_path, db_name="books.sqlite"))
+    await store.startup()
+    parser = EpubParser(logger=logger)
+    await parser.startup()
+    builder = RuleBasedBuilder(logger=logger)
+    await builder.startup()
+
+    class FakeIndexer:
+        _it = "summary"
+        @property
+        def index_type(self): return self._it
+        async def startup(self): pass
+        async def shutdown(self): pass
+        async def build_index(self, book_id, workspace, *, monitor=None, parent_id=None):
+            from bookscout.doccompiler.indexer import IndexProgress
+            from bookscout.doccompiler.indexer import IndexResult
+            return IndexResult(index_type=self._it, count=3, progress=IndexProgress(3, 3, "done", ""))
+
+    book_id = "book_test_tm_runindex"
+    book_workspace_root = tmp_path / book_id
+    book_workspace_root.mkdir(parents=True, exist_ok=True)
+    # Touch CONTENT.md so BookWorkspace.create succeeds if it ever needs it.
+    (book_workspace_root / "CONTENT.md").write_text("# dummy\n", encoding="utf-8")
+    # Manifest FK -> books.id: need a row first.
+    from bookscout.books import Book
+    await store.create_book(Book.new(book_id=book_id, title="Test"))
+
+    tm = TaskManager(
+        logger=logger,
+        books_store=store,
+        parser=parser,
+        builder=builder,
+        indexers=[FakeIndexer()],
+        vector_store=None,
+        workspace_base=tmp_path,
+        monitor=None,
+    )
+    await tm.startup()
+
+    task_id = await tm.start_index(book_id, ["summary"])
+    # Poll until task exits
+    import time
+    deadline = time.monotonic() + 5.0
+    while time.monotonic() < deadline:
+        prog = tm.get_progress(task_id)
+        if prog is None:
+            break
+        if prog.status in ("succeeded", "failed"):
+            break
+        await __import__("asyncio").sleep(0.02)
+
+    prog = tm.get_progress(task_id)
+    assert prog is not None, "Task disappeared"
+    assert prog.status == "succeeded", f"prog={prog!r}"
+
+    manifest = await store.list_indexes(book_id)
+    summary_rows = [r for r in manifest if r.index_type == "summary"]
+    assert len(summary_rows) == 1
+    assert summary_rows[0].status == "built"
+    assert summary_rows[0].count == 3
+
+    await tm.shutdown()
     await store.shutdown()
     await parser.shutdown()
     await builder.shutdown()

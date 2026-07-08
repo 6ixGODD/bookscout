@@ -354,6 +354,9 @@ class TaskManager(LoggingMixin, AsyncResourceMixin):
             for indexer in indexers_to_run:
                 state.stage = f"build_{indexer.index_type}_index"
                 self.logger.info("building index", task_id=task_id, index_type=indexer.index_type)
+                # Seed a `pending` row first; set_index_status would otherwise
+                # StoreError with "Manifest row not found" on a fresh build.
+                await self._books_store.upsert_index(book_id, indexer.index_type, "pending")
                 await self._books_store.set_index_status(book_id, indexer.index_type, "building")
                 try:
                     result = await indexer.build_index(book_id, workspace)
