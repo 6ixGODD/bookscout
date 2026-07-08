@@ -71,6 +71,7 @@ class _TaskState:
     error: str
     result: dict[str, t.Any]
     asyncio_task: asyncio.Task[t.Any] | None
+    index_types: set[str] | None = None
 
 
 class TaskManager(LoggingMixin, AsyncResourceMixin):
@@ -100,6 +101,7 @@ class TaskManager(LoggingMixin, AsyncResourceMixin):
         indexers: t.Sequence[Indexer] | None = None,
         vector_store: LanceDBStore | None = None,
         workspace_base: pathlib.Path | str = "output",
+        monitor: t.Any = None,
     ) -> None:
         super().__init__(logger=logger)
         self._books_store = books_store
@@ -110,6 +112,7 @@ class TaskManager(LoggingMixin, AsyncResourceMixin):
         self._vector_store = vector_store
         self._workspace_base = pathlib.Path(workspace_base).resolve()
         self._tasks: dict[str, _TaskState] = {}
+        self._monitor = monitor
 
     async def startup(self) -> None:
         """Start the underlying stores."""
@@ -145,12 +148,17 @@ class TaskManager(LoggingMixin, AsyncResourceMixin):
         self,
         source_path: str,
         book_id: str | None = None,
+        *,
+        index_types: set[str] | None = None,
     ) -> str:
         """Start a compilation task in the background.
 
         Args:
             source_path: Absolute path to the source file (EPUB, PDF).
             book_id: Optional book ID; auto-generated if None.
+            index_types: Optional set of index types to build. When ``None``,
+                builds all configured indexers. When non-empty, only indexers
+                whose ``index_type`` is in the set are run.
 
         Returns:
             task_id for progress polling.
@@ -169,11 +177,12 @@ class TaskManager(LoggingMixin, AsyncResourceMixin):
             error="",
             result={},
             asyncio_task=None,
+            index_types=index_types,
         )
         self._tasks[task_id] = state
 
         state.asyncio_task = asyncio.create_task(
-            self._run_compile(task_id, state, pathlib.Path(source_path), book_id),
+            self._run_compile(task_id, state, pathlib.Path(source_path), book_id, index_types),
         )
         self.logger.info("compile task started", task_id=task_id, source=source_path)
         return task_id  # type: ignore[no-any-return]
@@ -274,6 +283,7 @@ class TaskManager(LoggingMixin, AsyncResourceMixin):
         state: _TaskState,
         source_path: pathlib.Path,
         book_id: str | None,
+        index_types: set[str] | None = None,
     ) -> None:
         """Run a compilation task."""
         from .compiler import Compiler
@@ -290,10 +300,11 @@ class TaskManager(LoggingMixin, AsyncResourceMixin):
                 llm_model=self._llm_model,
                 indexers=self._indexers if self._indexers else None,
                 workspace_base=self._workspace_base,
+                monitor=self._monitor,
             )
 
             # Poll metrics while compiling.
-            result = await compiler.compile(source_path, book_id)
+            result = await compiler.compile(source_path, book_id, index_types=index_types)
 
             state.status = "succeeded"
             state.stage = "finished"
@@ -307,8 +318,8 @@ class TaskManager(LoggingMixin, AsyncResourceMixin):
 
         except Exception as e:  # pylint: disable=broad-exception-caught
             state.status = "failed"
-            state.error = str(e)
-            self.logger.error("compile task failed", task_id=task_id, error=str(e))
+            state.error = repr(e)
+            self.logger.error("compile task failed", task_id=task_id, error=repr(e))
 
     async def _run_index(
         self,
@@ -318,25 +329,23 @@ class TaskManager(LoggingMixin, AsyncResourceMixin):
         index_types: list[str] | None,
     ) -> None:
         """Run an index-building task."""
+        from bookscout.core.lib.utils import utcnow_ts
+
         from .workspace import BookWorkspace
 
         try:
             state.status = "running"
             state.stage = "build_indexes"
 
-            # Reconstruct the workspace from the book_id.
-            # The workspace base is the parent of the book directory.
             book_dir = self._workspace_base / book_id
             if not book_dir.exists():
-                # Try to find it — the workspace_base might be the book's parent.
                 raise RuntimeError(f"Book workspace not found: {book_dir}")
 
             workspace = BookWorkspace.create(self._workspace_base, book_id)
 
-            # Select which indexers to run.
             indexers_to_run = self._indexers
             if index_types:
-                indexers_to_run = [i for i in self._indexers if i.index_type in index_types]
+                indexers_to_run = [i for i in self._indexers if i.index_type in set(index_types)]
 
             state.total = len(indexers_to_run)
             state.processed = 0
@@ -344,13 +353,20 @@ class TaskManager(LoggingMixin, AsyncResourceMixin):
             results: dict[str, t.Any] = {}
             for indexer in indexers_to_run:
                 state.stage = f"build_{indexer.index_type}_index"
-                self.logger.info(
-                    "building index",
-                    task_id=task_id,
-                    index_type=indexer.index_type,
-                )
-                result = await indexer.build_index(book_id, workspace)
-                results[indexer.index_type] = result.count
+                self.logger.info("building index", task_id=task_id, index_type=indexer.index_type)
+                await self._books_store.set_index_status(book_id, indexer.index_type, "building")
+                try:
+                    result = await indexer.build_index(book_id, workspace)
+                    await self._books_store.upsert_index(
+                        book_id, indexer.index_type, "built",
+                        count=result.count, built_at=utcnow_ts(),
+                    )
+                    results[indexer.index_type] = result.count
+                except Exception as idx_err:
+                    await self._books_store.upsert_index(
+                        book_id, indexer.index_type, "failed", error=repr(idx_err),
+                    )
+                    raise
                 state.processed += 1
 
             state.status = "succeeded"
@@ -358,10 +374,10 @@ class TaskManager(LoggingMixin, AsyncResourceMixin):
             state.result = results
             self.logger.info("index task succeeded", task_id=task_id, results=results)
 
-        except Exception as e:  # pylint: disable=broad-exception-caught
+        except Exception as e:
             state.status = "failed"
-            state.error = str(e)
-            self.logger.error("index task failed", task_id=task_id, error=str(e))
+            state.error = repr(e)
+            self.logger.error("index task failed", task_id=task_id, error=repr(e))
 
 
 __all__ = [
