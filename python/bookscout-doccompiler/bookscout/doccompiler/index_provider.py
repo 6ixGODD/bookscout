@@ -47,6 +47,7 @@ class IndexProvider:
     tool_factory: ToolFactory
     store_factory: StoreFactory
     db_path_name: str
+    description: str = ""
 
 
 __all__ = ["IndexProvider"]

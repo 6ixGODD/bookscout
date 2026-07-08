@@ -78,3 +78,24 @@ def test_provider_is_frozen():
         raise AssertionError("should have raised FrozenInstanceError")
     except dataclasses.FrozenInstanceError:
         pass
+
+
+def test_provider_description_defaults_empty():
+    p = make_provider("chunk", "c")
+    assert p.description == ""
+
+
+def test_provider_description_field():
+    p = IndexProvider(
+        index_type="x",
+        display_name="X",
+        short_letter="x",
+        requires_vector_store=False,
+        default_enabled=True,
+        indexer_factory=_fake_indexer_factory,
+        tool_factory=_fake_tool_factory,
+        store_factory=_fake_store_factory,
+        db_path_name="x",
+        description="Some prose",
+    )
+    assert p.description == "Some prose"

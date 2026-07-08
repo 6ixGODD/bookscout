@@ -41,6 +41,7 @@ INDEX_PROVIDER = IndexProvider(
     tool_factory=_tool_factory,
     store_factory=_store_factory,
     db_path_name="chunks",
+    description="Passage-level chunks for precise citation and semantic search",
 )
 
 

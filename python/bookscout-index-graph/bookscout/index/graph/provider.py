@@ -42,4 +42,5 @@ INDEX_PROVIDER = IndexProvider(
     tool_factory=_tool_factory,
     store_factory=_store_factory,
     db_path_name="graph",
+    description="Relationship map between entities; slow and expensive",
 )

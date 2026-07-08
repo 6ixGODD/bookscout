@@ -39,4 +39,5 @@ INDEX_PROVIDER = IndexProvider(
     tool_factory=_tool_factory,
     store_factory=_store_factory,
     db_path_name="summary",
+    description="Book-level digest; cheap, good for high-level questions",
 )
