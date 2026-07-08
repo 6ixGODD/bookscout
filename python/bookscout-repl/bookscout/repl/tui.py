@@ -232,7 +232,7 @@ class BookScoutTui(App[None]):
     def _focus_input(self) -> None:
         """Keep focus on the input box at all times."""
         with contextlib.suppress(Exception):
-            if self.phase == "select":
+            if self.phase in ("select", "index_select"):
                 self.query_one("#select_input", Input).focus()
             elif self.phase == "chat":
                 self.query_one("#chat_input", Input).focus()
