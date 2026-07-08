@@ -1,0 +1,3 @@
+# `bookscout.mcp`
+
+::: bookscout.mcp

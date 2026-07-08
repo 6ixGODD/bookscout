@@ -55,11 +55,13 @@ class MineruPdfParser(PdfParser):
         max_pages_per_batch: int = DEFAULT_MAX_PAGES_PER_BATCH,
         model_version: str = "vlm",
         client: MineruClient | None = None,
+        monitor: t.Any = None,
     ) -> None:
         super().__init__(logger)
         self._max_pages = max_pages_per_batch
         self._model_version = model_version
         self._client = client
+        self._monitor = monitor
 
     async def startup(self) -> None:
         """Start the MinerU client (creating one if not provided)."""
@@ -119,6 +121,7 @@ class MineruPdfParser(PdfParser):
         )
 
         # Process each batch.
+        mtid = self._monitor.start("parse:pdf", total=len(batches)) if self._monitor else None
         batch_results: list[_BatchResult] = []
         for batch_idx, (page_start, page_end) in enumerate(batches):
             self.logger.info(
@@ -135,7 +138,12 @@ class MineruPdfParser(PdfParser):
                 page_end=page_end,
                 total_batches=len(batches),
             )
+            if self._monitor and mtid:
+                self._monitor.advance(mtid, 1)
             batch_results.append(result)
+
+        if self._monitor and mtid:
+            self._monitor.finish(mtid)
 
         # Merge batch results.
         content, mappings = self._merge_batches(book_id, batch_results)

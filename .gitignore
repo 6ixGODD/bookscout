@@ -31,3 +31,7 @@ demos/
 
 # Generated docs site
 /site/
+
+# Backup
+*.backup
+*.bak

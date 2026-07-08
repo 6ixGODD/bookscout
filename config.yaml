@@ -1,0 +1,33 @@
+# BookScout REPL configuration.
+# Environment variables (BOOKSCOUT_*) override these values.
+# CLI flags (--set key=value) override everything.
+# See .env.example for environment variable names.
+
+data_dir: ./data
+
+chatmodel:
+  api_key: ""
+  base_url: "https://api.deepseek.com"
+  model: "deepseek-v4-flash"
+  stateless: true
+
+embedding:
+  api_key: ""
+  base_url: "https://dashscope.aliyuncs.com/compatible-mode/v1"
+  model: "text-embedding-v4"
+  batch_size: 10
+
+mineru:
+  api_token: ""
+
+logging:
+  level: "INFO"
+  file: "logs/repl.log"
+  file_level: "DEBUG"
+  targets:
+    - dest: "stderr"
+      level: "INFO"
+      pretty: true
+    - dest: "file"
+      level: "DEBUG"
+      pretty: true

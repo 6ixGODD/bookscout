@@ -2,7 +2,7 @@
 
 Auto-generated API reference for all BookScout packages.
 
-> Generated from source: **93** Python modules.
+> Generated from source: **110** Python modules.
 
 
 ## Sections

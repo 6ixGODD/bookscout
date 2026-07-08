@@ -11,4 +11,8 @@ from bookscout.logging import build_logger
 @pytest.fixture()
 def logger():
     """A quiet logger suitable for tests."""
-    return build_logger(LoggingConfig(name="test", level="WARNING"))
+    test_logger = build_logger(LoggingConfig(name="test", level="WARNING"))
+    try:
+        yield test_logger
+    finally:
+        test_logger.close()

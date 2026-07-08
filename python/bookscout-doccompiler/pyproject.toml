@@ -25,6 +25,7 @@ dependencies = [
   "bookscout-core",
   "bookscout-filestore",
   "bookscout-logging",
+  "bookscout-progress",
   "bookscout-sqlite",
   "bookscout-tools",
   "ebooklib>=0.18",
@@ -70,3 +71,4 @@ bookscout-llm = { workspace = true }
 bookscout-logging = { workspace = true }
 bookscout-sqlite = { workspace = true }
 bookscout-tools = { workspace = true }
+bookscout-progress = { workspace = true }

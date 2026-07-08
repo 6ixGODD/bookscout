@@ -157,6 +157,7 @@ def _create_app() -> t.Any:
 
         # Build indexers if requested.
         indexers: list[t.Any] = []
+        vector_store: t.Any | None = None
         if build_indexes and llm_model is not None:
             dashscope_key = os.environ.get("DASHSCOPE_EMBEDDING_API_KEY", "")
             if not dashscope_key:
@@ -223,7 +224,7 @@ def _create_app() -> t.Any:
 
         # Run compilation.
         try:
-            asyncio.run(_run_compile(compiler, source_path))
+            asyncio.run(_run_compile(compiler, source_path, vector_store=vector_store))
         except Exception as e:
             typer.echo(f"ERROR: compilation failed: {e}", err=True)
             raise typer.Exit(1) from e
@@ -234,10 +235,12 @@ def _create_app() -> t.Any:
     return app
 
 
-async def _run_compile(compiler: t.Any, source_path: pathlib.Path) -> None:
+async def _run_compile(compiler: t.Any, source_path: pathlib.Path, *, vector_store: t.Any | None = None) -> None:
     """Run the compilation coroutine and print results."""
     import typer
 
+    if vector_store is not None:
+        await vector_store.init()
     await compiler.startup()
     try:
         result = await compiler.compile(source_path)
@@ -265,6 +268,8 @@ async def _run_compile(compiler: t.Any, source_path: pathlib.Path) -> None:
         typer.echo(f"  finished_at:   {m.finished_at}")
     finally:
         await compiler.shutdown()
+        if vector_store is not None:
+            await vector_store.close()
 
 
 # Create the app lazily — only when imported with typer available.

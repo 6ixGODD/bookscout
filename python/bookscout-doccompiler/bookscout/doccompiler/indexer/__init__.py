@@ -88,12 +88,17 @@ class Indexer(LoggingMixin, AsyncResourceMixin, abc.ABC):
         self,
         book_id: str,
         workspace: BookWorkspace,
+        *,
+        monitor: t.Any = None,
+        parent_id: str | None = None,
     ) -> IndexResult:
         """Build the derived index for a book.
 
         Args:
             book_id: The book id.
             workspace: The book workspace (for index DB paths).
+            monitor: Optional progress Monitor for fine-grained reporting.
+            parent_id: Parent task id in the monitor (for nesting).
 
         Returns:
             An :class:`IndexResult` with the build outcome.

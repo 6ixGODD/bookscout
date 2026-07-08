@@ -124,21 +124,22 @@ plugins:
       handlers:
         python:
           paths:
-            - python/bookscout-agents
-            - python/bookscout-books
-            - python/bookscout-core
-            - python/bookscout-doccompiler
-            - python/bookscout-embedding
-            - python/bookscout-filestore
-            - python/bookscout-index-chunk
-            - python/bookscout-index-graph
-            - python/bookscout-index-summary
-            - python/bookscout-llm
-            - python/bookscout-logging
-            - python/bookscout-repl
-            - python/bookscout-sqlite
-            - python/bookscout-tools
-            - python/bookscout-vectorstore
+          - python/bookscout-agents
+          - python/bookscout-books
+          - python/bookscout-core
+          - python/bookscout-doccompiler
+          - python/bookscout-embedding
+          - python/bookscout-filestore
+          - python/bookscout-index-chunk
+          - python/bookscout-index-graph
+          - python/bookscout-index-summary
+          - python/bookscout-llm
+          - python/bookscout-logging
+          - python/bookscout-mcp
+          - python/bookscout-repl
+          - python/bookscout-sqlite
+          - python/bookscout-tools
+          - python/bookscout-vectorstore
           options:
             docstring_style: google
             docstring_section_style: table
