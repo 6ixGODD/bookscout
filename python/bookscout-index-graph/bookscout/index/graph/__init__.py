@@ -467,8 +467,16 @@ class GraphIndexer(Indexer):
             return self._estimate_token(text)
         return max(1, len(text) // _CHARS_PER_TOKEN)
 
-    async def build_index(self, book_id: str, workspace: BookWorkspace) -> IndexResult:
+    async def build_index(
+        self,
+        book_id: str,
+        workspace: BookWorkspace,
+        *,
+        monitor: t.Any = None,
+        parent_id: str | None = None,
+    ) -> IndexResult:
         """Build the graph index for a book."""
+        mtid = monitor.start("graph:extract", total=0, parent_id=parent_id) if monitor else None
         tree = await self._books_store.get_tree(book_id)
         self.logger.info("graph build starting", book_id=book_id, nodes=len(tree))
         self._update_progress(total=0, processed=0, status="running", error="")
@@ -498,6 +506,8 @@ class GraphIndexer(Indexer):
 
             self.logger.info("graph chunks split", count=len(graph_chunks))
             self._update_progress(total=len(graph_chunks), processed=0)
+            if monitor and mtid:
+                monitor.set_total(mtid, len(graph_chunks))
 
             # 2. LLM-extract entities + relationships from each chunk.
             all_raw_entities: list[_RawEntity] = []
@@ -507,6 +517,8 @@ class GraphIndexer(Indexer):
                 all_raw_entities.extend(raw_ents)
                 all_raw_relationships.extend(raw_rels)
                 self._update_progress(processed=i + 1)
+                if monitor and mtid:
+                    monitor.advance(mtid, 1)
 
             self.logger.info(
                 "raw extraction done",
@@ -650,6 +662,8 @@ class GraphIndexer(Indexer):
                 relationships=len(relationships),
                 chunks=len(graph_chunks),
             )
+            if monitor and mtid:
+                monitor.finish(mtid)
             return IndexResult(index_type="graph", count=total, progress=self.progress)
         finally:
             await graph_store.shutdown()

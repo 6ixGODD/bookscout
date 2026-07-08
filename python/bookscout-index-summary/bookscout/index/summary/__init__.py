@@ -198,16 +198,26 @@ class SummaryIndexer(Indexer):
     def index_type(self) -> str:
         return "summary"
 
-    async def build_index(self, book_id: str, workspace: BookWorkspace) -> IndexResult:
+    async def build_index(
+        self,
+        book_id: str,
+        workspace: BookWorkspace,
+        *,
+        monitor: t.Any = None,
+        parent_id: str | None = None,
+    ) -> IndexResult:
         """Build summaries for all nodes in a book's tree.
 
         Args:
             book_id: The book id.
             workspace: The book workspace.
+            monitor: Optional progress Monitor for fine-grained reporting.
+            parent_id: Parent task id in the monitor.
 
         Returns:
             An :class:`IndexResult` with the count of summaries generated.
         """
+        mtid = monitor.start("summarize", total=0, parent_id=parent_id) if monitor else None
 
         db_path = workspace.index_db_path("summary")
         store = SummaryStore(logger=self.logger, db_path=db_path)
@@ -216,6 +226,8 @@ class SummaryIndexer(Indexer):
             tree = await self._books_store.get_tree(book_id)
             self.logger.info("summary build starting", book_id=book_id, nodes=len(tree))
             self._update_progress(total=len(tree), processed=0, status="running", error="")
+            if monitor and mtid:
+                monitor.set_total(mtid, len(tree))
 
             children_map: dict[str, list[BookNode]] = {}
             for node in tree:
@@ -270,6 +282,8 @@ class SummaryIndexer(Indexer):
                 )
                 count += 1
                 self._update_progress(processed=count)
+                if monitor and mtid:
+                    monitor.advance(mtid, 1)
                 self.logger.debug(
                     "summary generated",
                     node_id=node.id,
@@ -278,6 +292,8 @@ class SummaryIndexer(Indexer):
                 )
 
             self._update_progress(status="done")
+            if monitor and mtid:
+                monitor.finish(mtid)
             self.logger.info("summary build finished", book_id=book_id, count=count)
             return IndexResult(index_type="summary", count=count, progress=self.progress)
         finally:

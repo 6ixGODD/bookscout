@@ -28,6 +28,9 @@ dependencies = [
   "sqlmodel>=0.0.39",
 ]
 
+[project.entry-points."bookscout.indexes"]
+summary = "bookscout.index.summary.provider:INDEX_PROVIDER"
+
 [tool.setuptools]
 package-dir = { "" = "." }
 

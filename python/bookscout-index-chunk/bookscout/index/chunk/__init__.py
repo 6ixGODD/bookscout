@@ -187,13 +187,21 @@ class ChunkIndexer(Indexer):
     def index_type(self) -> str:
         return "chunk"
 
-    async def build_index(self, book_id: str, workspace: BookWorkspace) -> IndexResult:
+    async def build_index(
+        self,
+        book_id: str,
+        workspace: BookWorkspace,
+        *,
+        monitor: t.Any = None,
+        parent_id: str | None = None,
+    ) -> IndexResult:
         """Build chunk index for a book.
 
         Iterates all nodes with content_length > 0, reads each node's own
         body text from CONTENT.md via BooksStore, splits by token budget,
         generates embeddings, and writes to LanceDB + SQLite FTS5.
         """
+        mtid = monitor.start("chunk:split", total=0, parent_id=parent_id) if monitor else None
         db_path = workspace.index_db_path("chunks")
         store = ChunkStore(logger=self.logger, db_path=db_path)
         await store.startup()
@@ -201,17 +209,16 @@ class ChunkIndexer(Indexer):
             tree = await self._books_store.get_tree(book_id)
             self.logger.info("chunk build starting", book_id=book_id, nodes=len(tree))
             self._update_progress(total=0, processed=0, status="running", error="")
+            if monitor and mtid:
+                monitor.set_total(mtid, len(tree))
 
             all_chunks: list[ChunkEntry] = []
             for node in tree:
                 if node.content_length <= 0:
                     continue
-                # Read the node's own body text from CONTENT.md.
                 content = await self._books_store.read_node_content(node.id)
                 if not content.strip():
                     continue
-
-                # Split by token budget.
                 node_chunks = self._split_by_tokens(content, node.content_offset)
                 for idx, (chunk_text, rel_offset, chunk_len) in enumerate(node_chunks):
                     all_chunks.append(
@@ -225,7 +232,11 @@ class ChunkIndexer(Indexer):
                             chunk_index=idx,
                         )
                     )
+                if monitor and mtid:
+                    monitor.advance(mtid, 1)
 
+            if monitor and mtid:
+                monitor.finish(mtid)
             self._update_progress(total=len(all_chunks), processed=0)
             self.logger.info("chunks split", total=len(all_chunks))
 
@@ -234,6 +245,7 @@ class ChunkIndexer(Indexer):
 
             # Generate embeddings and write to LanceDB.
             if all_chunks:
+                etid = monitor.start("chunk:embed", total=len(all_chunks), parent_id=parent_id) if monitor else None
                 texts = [c.chunk_text for c in all_chunks]
                 self.logger.info("generating embeddings", count=len(texts))
                 vectors = await self._embedding.embed_batch(texts)
@@ -250,6 +262,9 @@ class ChunkIndexer(Indexer):
                     for c in all_chunks
                 ]
                 await self._vector_store.upsert(ids, vectors, payloads)
+                if monitor and etid:
+                    monitor.advance(etid, len(all_chunks))
+                    monitor.finish(etid)
                 self.logger.info("vectors stored in lancedb", count=len(ids))
 
             self._update_progress(processed=len(all_chunks), status="done")

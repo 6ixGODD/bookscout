@@ -30,6 +30,9 @@ dependencies = [
   "sqlmodel>=0.0.39",
 ]
 
+[project.entry-points."bookscout.indexes"]
+graph = "bookscout.index.graph.provider:INDEX_PROVIDER"
+
 [tool.setuptools.packages.find]
 where = [ "." ]
 include = [ "bookscout.index.graph*" ]
