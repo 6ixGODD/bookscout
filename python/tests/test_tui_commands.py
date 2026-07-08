@@ -12,13 +12,13 @@ import pathlib
 import tempfile
 
 from textual.widgets import Checkbox
-from textual.widgets import Input
 
 from bookscout.books import Book
 from bookscout.doccompiler.index_provider import IndexProvider
 from bookscout.doccompiler.index_registry import IndexRegistry
 from bookscout.repl.config import BookScoutConfig
 from bookscout.repl.tui import BookScoutTui
+from bookscout.repl.tui import PromptInput
 
 # -- Fakes -------------------------------------------------------------------
 
@@ -152,12 +152,12 @@ def _status(app: BookScoutTui) -> str:
     return _static_text("#status_bar", app)
 
 
-def _select_input(app: BookScoutTui) -> Input:
-    return app.query_one("#select_input", Input)
+def _select_input(app: BookScoutTui) -> PromptInput:
+    return app.query_one("#select_input", PromptInput)
 
 
-def _chat_input(app: BookScoutTui) -> Input:
-    return app.query_one("#chat_input", Input)
+def _chat_input(app: BookScoutTui) -> PromptInput:
+    return app.query_one("#chat_input", PromptInput)
 
 
 # -- Tests: select phase -----------------------------------------------------
@@ -370,9 +370,70 @@ async def test_chat_unknown_command_rejected() -> None:
 # -- Tests: prompt prefix static ---------------------------------------------
 
 
-async def test_prompt_prefix_static_always_visible() -> None:
+# -- Tests: prompt prefix baked into Input value ----------------------------
+
+
+async def test_prompt_prefix_in_value() -> None:
     app = BookScoutTui(BookScoutConfig())
     async with drive(app) as _pilot:
-        assert _static_text("#prompt_prefix", app) == "> "
-        assert not app.query_one("#select_input", Input).placeholder
-        assert not app.query_one("#chat_input", Input).placeholder
+        si = _select_input(app)
+        assert si.value == "> "
+        # Cursor should be right after the prompt prefix.
+        assert si.cursor_position == len(PromptInput.PROMPT)
+
+
+async def test_prompt_prefix_undeletable_via_backspace() -> None:
+    app = BookScoutTui(BookScoutConfig())
+    async with drive(app) as pilot:
+        si = _select_input(app)
+        # Type something so cursor is past the prefix.
+        si.insert_text_at_cursor("hello")
+        await pilot.pause()
+        assert si.value == "> hello"
+        # Backspace up to the prefix — the prefix should survive.
+        for _ in range(len("hello")):
+            si.action_delete_left()
+            await pilot.pause()
+        assert si.value == "> "
+        # One more backspace must NOT delete the prefix.
+        si.action_delete_left()
+        await pilot.pause()
+        assert si.value == "> "
+
+
+async def test_prompt_prefix_undeletable_via_select_all() -> None:
+    app = BookScoutTui(BookScoutConfig())
+    async with drive(app) as pilot:
+        si = _select_input(app)
+        si.insert_text_at_cursor("hi")
+        await pilot.pause()
+        # Ctrl+A (home with select) selects from current pos to start.
+        si.action_home(select=True)
+        await pilot.pause()
+        # Now delete_selection — should not eat the prefix.
+        si.delete_selection()
+        await pilot.pause()
+        assert si.value == "> " or si.value == "> hi", si.value
+
+
+async def test_prompt_command_property_strips_prefix() -> None:
+    app = BookScoutTui(BookScoutConfig())
+    async with drive(app) as pilot:
+        si = _select_input(app)
+        si.insert_text_at_cursor(":book 1")
+        await pilot.pause()
+        assert si.value == "> :book 1"
+        assert si.command == ":book 1"
+
+
+async def test_prompt_reset_restores_prefix() -> None:
+    app = BookScoutTui(BookScoutConfig())
+    async with drive(app) as pilot:
+        si = _select_input(app)
+        si.insert_text_at_cursor(":foo")
+        await pilot.pause()
+        assert si.value == "> :foo"
+        si.reset()
+        await pilot.pause()
+        assert si.value == "> "
+        assert si.cursor_position == len(PromptInput.PROMPT)

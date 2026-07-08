@@ -6,7 +6,7 @@ Layout::
     ─────────────────────  (white bold line)
     Content area           (book list / chat log / compile log / index select)
     ─────────────────────  (white bold line)
-    > input prompt
+    > command              (the `>` is baked into the Input value, non-deletable)
     ─────────────────────  (white bold line)
     Status
 
@@ -25,7 +25,6 @@ from textual import on
 from textual.app import App
 from textual.app import ComposeResult
 from textual.containers import Container
-from textual.containers import Horizontal
 from textual.reactive import reactive
 from textual.widgets import Checkbox
 from textual.widgets import Input
@@ -42,6 +41,74 @@ if t.TYPE_CHECKING:
     from bookscout.agents.mode import StreamChunk
     from bookscout.books import Book
     from bookscout.doccompiler.task_manager import TaskProgress
+
+
+class PromptInput(Input):
+    """An :class:`Input` whose value always begins with a non-deletable
+    ``"> "`` prompt prefix.
+
+    The prefix is baked into ``value`` itself (not a separate widget), so the
+    cursor sits next to it on the same line and the user cannot backspace
+    past it. The stripped command text is exposed via :attr:`command`.
+    """
+
+    PROMPT = "> "
+
+    def __init__(self, *args: t.Any, **kwargs: t.Any) -> None:
+        kwargs.setdefault("value", self.PROMPT)
+        super().__init__(*args, **kwargs)
+
+    @property
+    def command(self) -> str:
+        """The current value with the prompt prefix stripped."""
+        v = self.value
+        return v[len(self.PROMPT):] if v.startswith(self.PROMPT) else v
+
+    def reset(self) -> None:
+        """Reset back to just the prompt prefix and place the cursor after it."""
+        self.value = self.PROMPT
+        self.cursor_position = len(self.PROMPT)
+
+    # -- Block any deletion that overlaps the prompt prefix --
+    def delete(self, start: int, end: int) -> None:
+        p = len(self.PROMPT)
+        # Entire deletion is inside the prefix zone — block.
+        if end <= p:
+            return
+        # Partial overlap with the prefix — clamp start to the prefix end.
+        if start < p:
+            start = p
+        super().delete(start, end)
+
+    # -- Clamp cursor / selection so position never drops below the prefix --
+    def action_cursor_left(self, select: bool = False) -> None:
+        p = len(self.PROMPT)
+        if not select and self.cursor_position <= p:
+            return
+        super().action_cursor_left(select)
+        if self.cursor_position < p:
+            self.cursor_position = p
+
+    def action_cursor_left_word(self, select: bool = False) -> None:
+        p = len(self.PROMPT)
+        if not select and self.cursor_position <= p:
+            return
+        super().action_cursor_left_word(select)
+        if self.cursor_position < p:
+            self.cursor_position = p
+
+    def action_home(self, select: bool = False) -> None:
+        super().action_home(select)
+        p = len(self.PROMPT)
+        if self.cursor_position < p:
+            self.cursor_position = p
+
+    # -- Submit sends the stripped command (without prompt) to handlers --
+    async def action_submit(self) -> None:
+        validation_result = (
+            self.validate(self.value) if "submitted" in self.validate_on else None
+        )
+        self.post_message(self.Submitted(self, self.command, validation_result))
 
 
 class BookScoutTui(App[None]):
@@ -96,17 +163,7 @@ class BookScoutTui(App[None]):
     }
     #input_area {
         height: 3;
-        layout: horizontal;
         padding: 0 0 0 0;
-    }
-    #prompt_prefix {
-        width: 2;
-        height: 3;
-        color: #ffffff;
-        text-style: bold;
-        padding: 0 0 0 1;
-        background: #000000;
-        content-align: left middle;
     }
     #select_input, #chat_input {
         width: 1fr;
@@ -209,10 +266,9 @@ class BookScoutTui(App[None]):
             with Container(id="chat_panel"):
                 yield RichLog(id="chat_log", markup=True, wrap=True, classes="log-area")
                 yield Static("", id="chat_spinner_line")
-        with Horizontal(id="input_area"):
-            yield Static("> ", id="prompt_prefix")
-            yield Input(id="select_input")
-            yield Input(id="chat_input")
+        with Container(id="input_area"):
+            yield PromptInput(id="select_input")
+            yield PromptInput(id="chat_input")
         yield Static("", id="status_bar")
 
     def on_mount(self) -> None:
@@ -273,9 +329,9 @@ class BookScoutTui(App[None]):
         """Keep focus on the input box at all times."""
         with contextlib.suppress(Exception):
             if self.phase in ("select", "index_select"):
-                self.query_one("#select_input", Input).focus()
+                self.query_one("#select_input", PromptInput).focus()
             elif self.phase == "chat":
-                self.query_one("#chat_input", Input).focus()
+                self.query_one("#chat_input", PromptInput).focus()
 
     def _header_hint_for_phase(self, phase: str) -> str:
         if phase == "select":
@@ -315,8 +371,8 @@ class BookScoutTui(App[None]):
                 self.query_one(f"#{panel_id}", Container).display = (panel_id == active)
         # Show the right input.
         with contextlib.suppress(Exception):
-            self.query_one("#select_input", Input).display = (phase in ("select", "index_select"))
-            self.query_one("#chat_input", Input).display = (phase in ("chat", "compile"))
+            self.query_one("#select_input", PromptInput).display = (phase in ("select", "index_select"))
+            self.query_one("#chat_input", PromptInput).display = (phase in ("chat", "compile"))
 
     def _set_status(self, text: str) -> None:
         with contextlib.suppress(Exception):
@@ -412,7 +468,7 @@ class BookScoutTui(App[None]):
     def _handle_select_input(self, value: str) -> None:
         if not value:
             return
-        self.query_one("#select_input", Input).value = ""
+        self.query_one("#select_input", PromptInput).reset()
         if not value.startswith(":"):
             self._set_status("  Unknown command (commands start with `:`)")
             return
@@ -523,7 +579,7 @@ class BookScoutTui(App[None]):
         Toggle is done via the Checkbox widgets themselves; the input box only
         accepts `:go`/Enter (confirm), `:back` (cancel), `:quit` (exit).
         """
-        self.query_one("#select_input", Input).value = ""
+        self.query_one("#select_input", PromptInput).reset()
         low = text.lower().strip()
 
         if low == "":
@@ -745,7 +801,7 @@ class BookScoutTui(App[None]):
             if text.lower() in (":q", ":quit", ":exit"):
                 self.exit()
                 return
-            self.query_one("#chat_input", Input).value = ""
+            self.query_one("#chat_input", PromptInput).reset()
             self._set_status("  please wait... compile in progress")
             return
         if self._chat_busy:
@@ -753,7 +809,7 @@ class BookScoutTui(App[None]):
             return
         if not text:
             return
-        self.query_one("#chat_input", Input).value = ""
+        self.query_one("#chat_input", PromptInput).reset()
 
         if text.lower() in (":q", ":quit", ":exit"):
             self.exit()
