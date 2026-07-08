@@ -11,14 +11,13 @@ import contextlib
 import pathlib
 import tempfile
 
-from textual.widgets import Checkbox
+from textual.widgets import Input
 
 from bookscout.books import Book
 from bookscout.doccompiler.index_provider import IndexProvider
 from bookscout.doccompiler.index_registry import IndexRegistry
 from bookscout.repl.config import BookScoutConfig
 from bookscout.repl.tui import BookScoutTui
-from bookscout.repl.tui import PromptInput
 
 # -- Fakes -------------------------------------------------------------------
 
@@ -152,12 +151,12 @@ def _status(app: BookScoutTui) -> str:
     return _static_text("#status_bar", app)
 
 
-def _select_input(app: BookScoutTui) -> PromptInput:
-    return app.query_one("#select_input", PromptInput)
+def _select_input(app: BookScoutTui) -> Input:
+    return app.query_one("#select_input", Input)
 
 
-def _chat_input(app: BookScoutTui) -> PromptInput:
-    return app.query_one("#chat_input", PromptInput)
+def _chat_input(app: BookScoutTui) -> Input:
+    return app.query_one("#chat_input", Input)
 
 
 # -- Tests: select phase -----------------------------------------------------
@@ -233,18 +232,14 @@ async def test_select_compile_enters_index_select() -> None:
             await pilot.pause()
             assert app.phase == "index_select"
             assert app._compile_source == str(tmp)
-            # Checkboxes: chunk + summary default on, graph off.
-            assert app.query_one("#cb_chunk", Checkbox).value is True
-            assert app.query_one("#cb_summary", Checkbox).value is True
-            assert app.query_one("#cb_graph", Checkbox).value is False
-            cb = app.query_one("#cb_chunk", Checkbox)
-            assert "Chunk" in str(cb.label)
-            assert "Chunk description" in str(cb.label)
+            # Default selection: chunk + summary on, graph off.
+            assert app._selected_index_types == {"chunk", "summary"}
+            assert app._index_focus_idx == 0
     finally:
         tmp.unlink(missing_ok=True)
 
 
-async def test_index_select_checkbox_toggle_syncs_state() -> None:
+async def test_index_select_arrow_keys_move_focus() -> None:
     tmp = pathlib.Path(tempfile.gettempdir()) / "demo.epub"
     tmp.touch()
     try:
@@ -253,17 +248,50 @@ async def test_index_select_checkbox_toggle_syncs_state() -> None:
             _select_input(app).value = f":compile {tmp}"
             await pilot.press("enter")
             await pilot.pause()
-            # Toggle graph on.
-            app.query_one("#cb_graph", Checkbox).toggle()
+            assert app._index_focus_idx == 0
+            await pilot.press("down")
             await pilot.pause()
-            assert app.query_one("#cb_graph", Checkbox).value is True
-            assert "graph" in app._selected_index_types
-            # Toggle chunk off.
-            app.query_one("#cb_chunk", Checkbox).toggle()
+            assert app._index_focus_idx == 1
+            await pilot.press("down")
             await pilot.pause()
-            assert app.query_one("#cb_chunk", Checkbox).value is False
+            assert app._index_focus_idx == 2
+            # Wrap-around.
+            await pilot.press("down")
+            await pilot.pause()
+            assert app._index_focus_idx == 0
+            await pilot.press("up")
+            await pilot.pause()
+            assert app._index_focus_idx == 2
+    finally:
+        tmp.unlink(missing_ok=True)
+
+
+async def test_index_select_space_toggles_focused() -> None:
+    tmp = pathlib.Path(tempfile.gettempdir()) / "demo.epub"
+    tmp.touch()
+    try:
+        app = BookScoutTui(BookScoutConfig())
+        async with drive(app) as pilot:
+            _select_input(app).value = f":compile {tmp}"
+            await pilot.press("enter")
+            await pilot.pause()
+            # Focus on chunk (default idx 0), Space toggles it off.
+            assert "chunk" in app._selected_index_types
+            await pilot.press("space")
+            await pilot.pause()
             assert "chunk" not in app._selected_index_types
-            assert app._selected_index_types == {"summary", "graph"}
+            # Move down to summary, toggle off.
+            await pilot.press("down")
+            await pilot.pause()
+            await pilot.press("space")
+            await pilot.pause()
+            assert "summary" not in app._selected_index_types
+            # Move down to graph (off by default), toggle on.
+            await pilot.press("down")
+            await pilot.pause()
+            await pilot.press("space")
+            await pilot.pause()
+            assert app._selected_index_types == {"graph"}
     finally:
         tmp.unlink(missing_ok=True)
 
@@ -367,73 +395,12 @@ async def test_chat_unknown_command_rejected() -> None:
         assert "Unknown chat command: :foo" in _status(app)
 
 
-# -- Tests: prompt prefix static ---------------------------------------------
+# -- Tests: input starts empty (no prompt prefix baked in) -------------------
 
 
-# -- Tests: prompt prefix baked into Input value ----------------------------
-
-
-async def test_prompt_prefix_in_value() -> None:
+async def test_input_is_plain_no_prefix() -> None:
     app = BookScoutTui(BookScoutConfig())
     async with drive(app) as _pilot:
         si = _select_input(app)
-        assert si.value == "> "
-        # Cursor should be right after the prompt prefix.
-        assert si.cursor_position == len(PromptInput.PROMPT)
-
-
-async def test_prompt_prefix_undeletable_via_backspace() -> None:
-    app = BookScoutTui(BookScoutConfig())
-    async with drive(app) as pilot:
-        si = _select_input(app)
-        # Type something so cursor is past the prefix.
-        si.insert_text_at_cursor("hello")
-        await pilot.pause()
-        assert si.value == "> hello"
-        # Backspace up to the prefix — the prefix should survive.
-        for _ in range(len("hello")):
-            si.action_delete_left()
-            await pilot.pause()
-        assert si.value == "> "
-        # One more backspace must NOT delete the prefix.
-        si.action_delete_left()
-        await pilot.pause()
-        assert si.value == "> "
-
-
-async def test_prompt_prefix_undeletable_via_select_all() -> None:
-    app = BookScoutTui(BookScoutConfig())
-    async with drive(app) as pilot:
-        si = _select_input(app)
-        si.insert_text_at_cursor("hi")
-        await pilot.pause()
-        # Ctrl+A (home with select) selects from current pos to start.
-        si.action_home(select=True)
-        await pilot.pause()
-        # Now delete_selection — should not eat the prefix.
-        si.delete_selection()
-        await pilot.pause()
-        assert si.value == "> " or si.value == "> hi", si.value
-
-
-async def test_prompt_command_property_strips_prefix() -> None:
-    app = BookScoutTui(BookScoutConfig())
-    async with drive(app) as pilot:
-        si = _select_input(app)
-        si.insert_text_at_cursor(":book 1")
-        await pilot.pause()
-        assert si.value == "> :book 1"
-        assert si.command == ":book 1"
-
-
-async def test_prompt_reset_restores_prefix() -> None:
-    app = BookScoutTui(BookScoutConfig())
-    async with drive(app) as pilot:
-        si = _select_input(app)
-        si.insert_text_at_cursor(":foo")
-        await pilot.pause()
-        assert si.value == "> :foo"
-        si.reset()
-        await pilot.pause()
-        assert si.value == "> "
-        assert si.cursor_position == len(PromptInput.PROMPT)
+        assert si.value == ""
+        assert not si.placeholder

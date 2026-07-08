@@ -3,11 +3,11 @@
 Layout::
 
     Header (phase-specific hint)
-    ─────────────────────  (white bold line)
-    Content area           (book list / chat log / compile log / index select)
-    ─────────────────────  (white bold line)
-    > command              (the `>` is baked into the Input value, non-deletable)
-    ─────────────────────  (white bold line)
+    --- (white bold line)
+    Content area  (book list / markdown chat / compile log / index select)
+    --- (white bold line)
+    Input
+    --- (white bold line)
     Status
 
 Pure black background. No borders. Focus always on input.
@@ -21,15 +21,16 @@ import pathlib
 import typing as t
 
 from rich.text import Text
+from textual import events
 from textual import on
 from textual.app import App
 from textual.app import ComposeResult
 from textual.containers import Container
 from textual.reactive import reactive
-from textual.widgets import Checkbox
 from textual.widgets import Input
 from textual.widgets import ListItem
 from textual.widgets import ListView
+from textual.widgets import Markdown
 from textual.widgets import RichLog
 from textual.widgets import Rule
 from textual.widgets import Static
@@ -43,72 +44,29 @@ if t.TYPE_CHECKING:
     from bookscout.doccompiler.task_manager import TaskProgress
 
 
-class PromptInput(Input):
-    """An :class:`Input` whose value always begins with a non-deletable
-    ``"> "`` prompt prefix.
+class CommandInput(Input):
+    """A plain :class:`Input` whose arrow-key / Space handling is delegated to
+    the owning :class:`BookScoutTui` when the app is in the ``index_select``
+    phase.
 
-    The prefix is baked into ``value`` itself (not a separate widget), so the
-    cursor sits next to it on the same line and the user cannot backspace
-    past it. The stripped command text is exposed via :attr:`command`.
+    During any other phase the input behaves exactly like a stock ``Input``.
     """
 
-    PROMPT = "> "
-
-    def __init__(self, *args: t.Any, **kwargs: t.Any) -> None:
-        kwargs.setdefault("value", self.PROMPT)
-        super().__init__(*args, **kwargs)
-
-    @property
-    def command(self) -> str:
-        """The current value with the prompt prefix stripped."""
-        v = self.value
-        return v[len(self.PROMPT):] if v.startswith(self.PROMPT) else v
-
-    def reset(self) -> None:
-        """Reset back to just the prompt prefix and place the cursor after it."""
-        self.value = self.PROMPT
-        self.cursor_position = len(self.PROMPT)
-
-    # -- Block any deletion that overlaps the prompt prefix --
-    def delete(self, start: int, end: int) -> None:
-        p = len(self.PROMPT)
-        # Entire deletion is inside the prefix zone — block.
-        if end <= p:
+    async def _on_key(self, event: events.Key) -> None:
+        app = self.app
+        if getattr(app, "phase", "") == "index_select" and event.key in ("up", "down", "space"):
+            # Stop the Input from inserting the space / moving the caret, then
+            # let the App-level handler take over.
+            event.stop()
+            event.prevent_default()
+            if event.key == "up":
+                app._move_index_focus(-1)  # type: ignore[attr-defined]
+            elif event.key == "down":
+                app._move_index_focus(+1)  # type: ignore[attr-defined]
+            elif event.key == "space":
+                app._toggle_index_focus()  # type: ignore[attr-defined]
             return
-        # Partial overlap with the prefix — clamp start to the prefix end.
-        if start < p:
-            start = p
-        super().delete(start, end)
-
-    # -- Clamp cursor / selection so position never drops below the prefix --
-    def action_cursor_left(self, select: bool = False) -> None:
-        p = len(self.PROMPT)
-        if not select and self.cursor_position <= p:
-            return
-        super().action_cursor_left(select)
-        if self.cursor_position < p:
-            self.cursor_position = p
-
-    def action_cursor_left_word(self, select: bool = False) -> None:
-        p = len(self.PROMPT)
-        if not select and self.cursor_position <= p:
-            return
-        super().action_cursor_left_word(select)
-        if self.cursor_position < p:
-            self.cursor_position = p
-
-    def action_home(self, select: bool = False) -> None:
-        super().action_home(select)
-        p = len(self.PROMPT)
-        if self.cursor_position < p:
-            self.cursor_position = p
-
-    # -- Submit sends the stripped command (without prompt) to handlers --
-    async def action_submit(self) -> None:
-        validation_result = (
-            self.validate(self.value) if "submitted" in self.validate_on else None
-        )
-        self.post_message(self.Submitted(self, self.command, validation_result))
+        await super()._on_key(event)
 
 
 class BookScoutTui(App[None]):
@@ -192,10 +150,6 @@ class BookScoutTui(App[None]):
         border-top: solid #ffffff;
         border-bottom: solid #ffffff;
     }
-    Checkbox {
-        padding: 0 1;
-        background: #000000;
-    }
     ListView > ListItem {
         padding: 0 1;
         background: #000000;
@@ -238,6 +192,8 @@ class BookScoutTui(App[None]):
         self._spinner_active = False
         self._compile_source = ""
         self._selected_index_types: set[str] = set()
+        self._index_focus_idx: int = 0
+        self._chat_markdown: str = ""
         self._post_compile_target = "select"
 
     # -- Composition --
@@ -254,9 +210,7 @@ class BookScoutTui(App[None]):
             # Index select panel (shown between select and compile).
             with Container(id="index_select_panel"):
                 yield Static("Indexes to build:", id="index_select_hint")
-                yield Checkbox("", id="cb_chunk")
-                yield Checkbox("", id="cb_summary")
-                yield Checkbox("", id="cb_graph")
+                yield Static("", id="index_select_list", classes="log-area")
                 yield Static("", id="index_select_error")
             # Compile panel
             with Container(id="compile_panel"):
@@ -264,11 +218,11 @@ class BookScoutTui(App[None]):
                 yield Static("", id="spinner_line")
             # Chat panel
             with Container(id="chat_panel"):
-                yield RichLog(id="chat_log", markup=True, wrap=True, classes="log-area")
+                yield Markdown(id="chat_log", classes="log-area")
                 yield Static("", id="chat_spinner_line")
         with Container(id="input_area"):
-            yield PromptInput(id="select_input")
-            yield PromptInput(id="chat_input")
+            yield CommandInput(id="select_input")
+            yield CommandInput(id="chat_input")
         yield Static("", id="status_bar")
 
     def on_mount(self) -> None:
@@ -329,11 +283,12 @@ class BookScoutTui(App[None]):
         """Keep focus on the input box at all times."""
         with contextlib.suppress(Exception):
             if self.phase in ("select", "index_select"):
-                self.query_one("#select_input", PromptInput).focus()
+                self.query_one("#select_input", Input).focus()
             elif self.phase == "chat":
-                self.query_one("#chat_input", PromptInput).focus()
+                self.query_one("#chat_input", Input).focus()
 
-    def _header_hint_for_phase(self, phase: str) -> str:
+    @staticmethod
+    def _header_hint_for_phase(phase: str) -> str:
         if phase == "select":
             return (
                 ":book N  read    "
@@ -371,8 +326,8 @@ class BookScoutTui(App[None]):
                 self.query_one(f"#{panel_id}", Container).display = (panel_id == active)
         # Show the right input.
         with contextlib.suppress(Exception):
-            self.query_one("#select_input", PromptInput).display = (phase in ("select", "index_select"))
-            self.query_one("#chat_input", PromptInput).display = (phase in ("chat", "compile"))
+            self.query_one("#select_input", Input).display = (phase in ("select", "index_select"))
+            self.query_one("#chat_input", Input).display = (phase in ("chat", "compile"))
 
     def _set_status(self, text: str) -> None:
         with contextlib.suppress(Exception):
@@ -468,7 +423,7 @@ class BookScoutTui(App[None]):
     def _handle_select_input(self, value: str) -> None:
         if not value:
             return
-        self.query_one("#select_input", PromptInput).reset()
+        self.query_one("#select_input", Input).value = ""
         if not value.startswith(":"):
             self._set_status("  Unknown command (commands start with `:`)")
             return
@@ -533,53 +488,84 @@ class BookScoutTui(App[None]):
             self._selected_index_types = {p.index_type for p in self._repl_context.registry.default_enabled()}
         else:
             self._selected_index_types = set()
+        self._index_focus_idx = 0
         self._render_index_select()
         self.phase = "index_select"
         self._set_status(f"  select indexes for: {pathlib.Path(source_path).name}")
         self._focus_input()
 
     def _render_index_select(self) -> None:
-        """Render the checkbox list for index selection.
+        """Render the index selection list.
 
-        Each Checkbox gets a Rich-Text label: bold display_name + dim description.
-        The Checkbox's ``.value`` is set from ``self._selected_index_types``.
+        Each provider gets a line::
+
+            [*]  Chunk    Passage-level chunks for precise citation ...
+            [ ]  Summary  Book-level digest; cheap ...
+            [ ]  Graph    Relationship map between entities ...
+
+        - ``[*]`` indicates selected; ``[ ]`` unselected.
+        - The currently focused row uses bold-white text; all others are grey.
+        - Display names are padded to a fixed width so all rows align.
         """
         assert self._repl_context is not None
         registry = self._repl_context.registry
-        for provider in registry.all():
-            cb_id = f"#cb_{provider.index_type}"
-            try:
-                cb = self.query_one(cb_id, Checkbox)
-            except Exception:
-                continue
-            parts: list[Text] = [Text(provider.display_name, style="bold")]
-            if provider.description:
-                parts.append(Text("  "))
-                parts.append(Text(provider.description, style="dim"))
-            cb.label = Text.assemble(*parts)
-            cb.value = provider.index_type in self._selected_index_types
-
-    @on(Checkbox.Changed)
-    def _checkbox_changed(self, event: Checkbox.Changed) -> None:
-        """Keep ``self._selected_index_types`` in sync with the checkbox widgets."""
-        cb_id = event.checkbox.id or ""
-        if not cb_id.startswith("cb_"):
-            return
-        index_type = cb_id[3:]
-        if event.value:
-            self._selected_index_types.add(index_type)
-        else:
-            self._selected_index_types.discard(index_type)
+        providers = registry.all()
+        name_w = max((len(p.display_name) for p in providers), default=0)
+        out = Text()
+        for idx, provider in enumerate(providers):
+            checked = provider.index_type in self._selected_index_types
+            box = "[*]" if checked else "[ ]"
+            focused = idx == self._index_focus_idx
+            style = "bold white" if focused else "#888888"
+            desc_style = "#cccccc" if focused else "#444444"
+            if idx > 0:
+                out.append(Text("\n"))
+            out.append(Text(f"  {box}  ", style=style))
+            out.append(Text(provider.display_name.ljust(name_w), style=style))
+            out.append(Text("    "))
+            out.append(Text(provider.description or "", style=desc_style))
+        out.append(Text("\n\n"))
+        out.append(Text("  up/down  focus    Space  toggle    Enter/:go  confirm    :back  cancel", style="#666666"))
+        with contextlib.suppress(Exception):
+            self.query_one("#index_select_list", Static).update(out)
         names = ", ".join(sorted(self._selected_index_types)) or "none"
         self._set_status(f"  indexes: {names}")
+
+    def _move_index_focus(self, delta: int) -> None:
+        """Move the index selection focus by ``delta`` (clamped to provider range)."""
+        assert self._repl_context is not None
+        providers = self._repl_context.registry.all()
+        if not providers:
+            return
+        n = len(providers)
+        self._index_focus_idx = (self._index_focus_idx + delta) % n
+        self._render_index_select()
+
+    def _toggle_index_focus(self) -> None:
+        """Toggle the currently focused index's selection membership."""
+        assert self._repl_context is not None
+        providers = self._repl_context.registry.all()
+        if not providers:
+            return
+        provider = providers[self._index_focus_idx]
+        if provider.index_type in self._selected_index_types:
+            self._selected_index_types.discard(provider.index_type)
+        else:
+            self._selected_index_types.add(provider.index_type)
+        self._render_index_select()
 
     def _handle_index_select_input(self, text: str) -> None:
         """Handle input in the index_select phase.
 
-        Toggle is done via the Checkbox widgets themselves; the input box only
-        accepts `:go`/Enter (confirm), `:back` (cancel), `:quit` (exit).
+        Commands accepted by the input box:
+        - Up/Down arrows and Space are intercepted by :meth:`on_key` to move
+          and toggle the focused row in the list.
+        - Empty Enter / ``:go`` / ``:ok``: start compile with the selected set.
+        - ``:back`` / ``:cancel`` / ``:select``: return to book list.
+        - ``:quit``: exit the app.
+        - Any other non-``:`` text is rejected as an unknown command.
         """
-        self.query_one("#select_input", PromptInput).reset()
+        self.query_one("#select_input", Input).value = ""
         low = text.lower().strip()
 
         if low == "":
@@ -647,15 +633,15 @@ class BookScoutTui(App[None]):
             self._set_status("  chat unavailable: LLM/embedding not configured.")
             return
         self._selected_book = book
-        log = self.query_one("#chat_log", RichLog)
-        log.clear()
-        log.write(Text.assemble(
-            Text(book.title or "(untitled)", style="bold"),
-            Text(f"  by {book.author or 'Unknown'}", style="dim"),
-        ))
-        log.write(Text(""))
-        log.write(Text("  :quit :back :clear", style="dim"))
-        log.write(Text(""))
+        title = book.title or "(untitled)"
+        author = book.author or "Unknown"
+        self._chat_markdown = (
+            f"# {title}\n\n"
+            f"*by {author}*\n\n"
+            f"---\n\n"
+            f"`:quit` `:back` `:clear`\n\n"
+        )
+        self.query_one("#chat_log", Markdown).update(self._chat_markdown)
         self.phase = "chat"
         self._set_status(f"  {book.title or '(untitled)'}")
         self._focus_input()
@@ -801,7 +787,7 @@ class BookScoutTui(App[None]):
             if text.lower() in (":q", ":quit", ":exit"):
                 self.exit()
                 return
-            self.query_one("#chat_input", PromptInput).reset()
+            self.query_one("#chat_input", Input).value = ""
             self._set_status("  please wait... compile in progress")
             return
         if self._chat_busy:
@@ -809,7 +795,7 @@ class BookScoutTui(App[None]):
             return
         if not text:
             return
-        self.query_one("#chat_input", PromptInput).reset()
+        self.query_one("#chat_input", Input).value = ""
 
         if text.lower() in (":q", ":quit", ":exit"):
             self.exit()
@@ -821,7 +807,8 @@ class BookScoutTui(App[None]):
             self._focus_input()
             return
         if text.lower() == ":clear":
-            self.query_one("#chat_log", RichLog).clear()
+            self._chat_markdown = ""
+            self.query_one("#chat_log", Markdown).update("")
             return
 
         low = text.lower()
@@ -875,12 +862,10 @@ class BookScoutTui(App[None]):
     async def _run_chat(self, user_input: str) -> None:
         assert self._repl_context is not None
         assert self._selected_book is not None
-        log = self.query_one("#chat_log", RichLog)
-        log.write(Text.assemble(
-            Text("> ", style="bold"),
-            Text(user_input),
-        ))
-        log.write(Text(""))
+        # Append the user turn as a markdown blockquote and flush to the widget.
+        escaped = user_input.replace("\n", "\n> ")
+        self._chat_markdown += f"\n> **you:** {escaped}\n\n"
+        await self.query_one("#chat_log", Markdown).update(self._chat_markdown)
         self._chat_busy = True
         self._set_status("  thinking...")
         self._start_spinner("thinking...")
@@ -889,11 +874,12 @@ class BookScoutTui(App[None]):
         self._assistant_first_line = True
         try:
             async for chunk in self._repl_context.chat(self._selected_book.id, user_input):
-                self._handle_chunk(chunk, log)
+                self._handle_chunk(chunk)
         except Exception as e:
-            log.write(Text(f"ERROR: {e}", style="bold red"))
+            self._chat_markdown += f"\n**ERROR:** {e}\n\n"
+            await self.query_one("#chat_log", Markdown).update(self._chat_markdown)
         finally:
-            self._flush_streaming(log)
+            self._flush_streaming()
             self._chat_busy = False
             self._stop_spinner()
             self._set_status(f"  {self._selected_book.title or '(untitled)'}")
@@ -927,8 +913,8 @@ class BookScoutTui(App[None]):
             # Refresh selected_book indexes.
             self._books = await self._repl_context.list_books()
             self._selected_book = next((b for b in self._books if b.id == book_id), None)
-            chat_log = self.query_one("#chat_log", RichLog)
-            chat_log.write(Text(f"  removed index: {idx_type}", style="dim"))
+            self._chat_markdown += f"\n*removed index: `{idx_type}`*\n\n"
+            await self.query_one("#chat_log", Markdown).update(self._chat_markdown)
             self._set_status(f"  {self._selected_book.title or '(untitled)'}")
         except Exception as e:
             self._show_error(f"Failed to remove index:\n{e}")
@@ -936,73 +922,67 @@ class BookScoutTui(App[None]):
         finally:
             self._focus_input()
 
-    def _handle_chunk(self, chunk: StreamChunk, log: RichLog) -> None:
+    def _handle_chunk(self, chunk: StreamChunk) -> None:
         if chunk.kind == "text":
             delta = chunk.data if isinstance(chunk.data, str) else str(chunk.data)
             if not self._streaming_started:
                 self._streaming_started = True
+                # First token of a turn: prefix the assistant section.
+                self._chat_markdown += "## assistant\n\n"
             self._streaming_buffer.append(delta)
             joined = "".join(self._streaming_buffer)
             if "\n" in joined:
                 head, _, tail = joined.rpartition("\n")
                 self._streaming_buffer = [tail]
-                self._write_assistant_line(head, log=log)
+                self._write_assistant_line(head)
         elif chunk.kind == "tool_call":
-            self._flush_streaming(log)
+            self._flush_streaming()
             data = chunk.data if isinstance(chunk.data, dict) else {}
             name = data.get("tool_name", "?")
-            log.write(Text.assemble(
-                Text("  -> ", style="bold"),
-                Text(name),
-            ))
+            self._chat_markdown += f"\n`-> {name}`\n\n"
+            self.query_one("#chat_log", Markdown).update(self._chat_markdown)
             self._assistant_first_line = True
         elif chunk.kind == "tool_result":
-            self._flush_streaming(log)
+            self._flush_streaming()
             data = chunk.data if isinstance(chunk.data, dict) else {}
             name = data.get("tool_name", "?")
             summary = data.get("summary", "")
             stats = data.get("retrieval_stats") or {}
             stats_str = ", ".join(f"{k}={v}" for k, v in stats.items())
-            parts = [
-                Text("  <- ", style="bold"),
-                Text(name),
-            ]
+            buf = f"`<- {name}`"
             if summary:
-                parts.append(Text(f"  {summary}", style="dim"))
+                buf += f"  *{summary}*"
             if stats_str:
-                parts.append(Text(f"  [{stats_str}]", style="dim"))
-            log.write(Text.assemble(*parts))
+                buf += f"  `[{stats_str}]`"
+            self._chat_markdown += f"\n{buf}\n\n"
+            self.query_one("#chat_log", Markdown).update(self._chat_markdown)
             self._assistant_first_line = True
         elif chunk.kind == "status":
             data = chunk.data if isinstance(chunk.data, dict) else {}
             phase = data.get("phase", "")
             if phase == "auto_compacted":
-                log.write(Text("  [auto-compacted]", style="dim"))
+                self._chat_markdown += "\n*[auto-compacted]*\n\n"
+                self.query_one("#chat_log", Markdown).update(self._chat_markdown)
 
-    def _flush_streaming(self, log: RichLog) -> None:
+    def _flush_streaming(self) -> None:
         if not self._streaming_started:
             return
         text = "".join(self._streaming_buffer)
         self._streaming_buffer = []
         self._streaming_started = False
         if text:
-            self._write_assistant_line(text, log=log)
-            log.write(Text(""))
+            self._write_assistant_line(text)
+            self._chat_markdown += "\n"
+            self.query_one("#chat_log", Markdown).update(self._chat_markdown)
 
-    def _write_assistant_line(self, text: str, *, log: RichLog) -> None:
-        if self._assistant_first_line:
-            log.write(Text.assemble(
-                Text("< ", style="bold"),
-                Text(text),
-            ))
-            self._assistant_first_line = False
-        else:
-            log.write(Text(f"  {text}"))
+    def _write_assistant_line(self, text: str) -> None:
+        self._chat_markdown += f"{text}\n"
 
     # -- Actions --
     def action_clear_log(self) -> None:
         if self.phase == "chat":
-            self.query_one("#chat_log", RichLog).clear()
+            self._chat_markdown = ""
+            self.query_one("#chat_log", Markdown).update("")
         elif self.phase == "compile":
             self.query_one("#compile_log", RichLog).clear()
 
