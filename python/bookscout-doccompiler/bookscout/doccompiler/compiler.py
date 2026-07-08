@@ -24,6 +24,7 @@ from bookscout.logging.mixin import LoggingMixin
 
 from .builder import Builder
 from .builder.metadata import LlmMetadataExtractor
+from .indexer import IndexResult
 from .indexer import Indexer
 from .types import ParserResult
 from .workspace import BookWorkspace
@@ -117,6 +118,7 @@ class Compiler(LoggingMixin, AsyncResourceMixin):
         llm_model: ChatModel | None = None,
         indexers: t.Sequence[Indexer] | None = None,
         workspace_base: pathlib.Path | str = "output",
+        monitor: t.Any = None,
     ) -> None:
         super().__init__(logger=logger)
         self._parser = parser
@@ -126,6 +128,7 @@ class Compiler(LoggingMixin, AsyncResourceMixin):
         self._indexers = list(indexers) if indexers else []
         self._workspace_base = pathlib.Path(workspace_base).resolve()
         self._metrics = CompileMetrics()
+        self._monitor = monitor
 
     @property
     def metrics(self) -> CompileMetrics:
@@ -163,12 +166,21 @@ class Compiler(LoggingMixin, AsyncResourceMixin):
         await self._parser.shutdown()
         await super().shutdown()
 
-    async def compile(self, source_path: pathlib.Path, book_id: str | None = None) -> CompileResult:
+    async def compile(
+        self,
+        source_path: pathlib.Path,
+        book_id: str | None = None,
+        *,
+        index_types: set[str] | None = None,
+    ) -> CompileResult:
         """Compile a source document into a persisted ontology + indexes.
 
         Args:
             source_path: Path to the source file (EPUB, PDF, etc.).
             book_id: Optional book id; auto-generated when ``None``.
+            index_types: Optional set of index types to build. When ``None``,
+                builds all configured indexers. When non-empty, only indexers
+                whose ``index_type`` is in the set are run.
 
         Returns:
             A :class:`CompileResult`.
@@ -197,7 +209,10 @@ class Compiler(LoggingMixin, AsyncResourceMixin):
             # Stage 2: parse_source
             self._update(stage=CompileStage.PARSE_SOURCE.value)
             self.logger.info("stage: parse_source")
+            parse_tid = self._monitor.start("parse", total=0) if self._monitor else None
             parser_result = await self._parser.parse(source_path, book_id, workspace)
+            if self._monitor and parse_tid:
+                self._monitor.finish(parse_tid)
 
             self._update(
                 stage=CompileStage.GENERATE_CONTENT.value,
@@ -282,23 +297,22 @@ class Compiler(LoggingMixin, AsyncResourceMixin):
 
             # Stage 6: build_indexes
             if self._indexers:
-                self._update(stage=CompileStage.BUILD_INDEXES.value)
-                self.logger.info("stage: build_indexes", count=len(self._indexers))
-                for indexer in self._indexers:
-                    try:
-                        self.logger.info("building index", type=indexer.index_type)
-                        result = await indexer.build_index(book_id, workspace)
-                        self.logger.info(
-                            "index built",
-                            type=result.index_type,
-                            count=result.count,
+                selected = [i for i in self._indexers
+                            if index_types is None or i.index_type in index_types]
+                if selected:
+                    self._update(stage=CompileStage.BUILD_INDEXES.value)
+                    self.logger.info("stage: build_indexes", count=len(selected), types=[i.index_type for i in selected])
+                    idx_root = self._monitor.start("indexes", total=len(selected)) if self._monitor else None
+                    for indexer in selected:
+                        idx_tid = self._monitor.start(
+                            f"index:{indexer.index_type}", total=0, parent_id=idx_root
+                        ) if self._monitor else None
+                        await self._build_one_index(
+                            indexer, book_id, workspace,
+                            monitor=self._monitor, parent_id=idx_tid, idx_root=idx_root,
                         )
-                    except Exception as e:  # pylint: disable=broad-exception-caught
-                        self.logger.warning(
-                            "index build failed",
-                            type=indexer.index_type,
-                            error=str(e),
-                        )
+                    if self._monitor and idx_root:
+                        self._monitor.finish(idx_root)
 
             # Stage 7: finished
             self._update(
@@ -323,4 +337,56 @@ class Compiler(LoggingMixin, AsyncResourceMixin):
                 finished_at=utcnow().isoformat(),
             )
             self.logger.exception("compilation failed", book_id=book_id, error=str(e))
+            raise
+
+    async def _build_one_index(
+        self,
+        indexer: Indexer,
+        book_id: str,
+        workspace: BookWorkspace,
+        *,
+        monitor: t.Any = None,
+        parent_id: str | None = None,
+        idx_root: str | None = None,
+    ) -> IndexResult:
+        """Build one index, write the manifest row around it, and update the monitor.
+
+        On success: manifest status='built', count=result.count.
+        On failure: manifest status='failed', error=repr(e), monitor.fail.
+        The exception is *not* swallowed here for compile; the caller's
+        outer try/except captures it. For incremental :addindex, the same
+        method is called but the exception is caught and logged.
+        """
+        from bookscout.core.lib.utils import utcnow_ts
+
+        await self._books_store.set_index_status(
+            book_id, indexer.index_type, "building",
+        )
+        try:
+            self.logger.info("building index", type=indexer.index_type)
+            result = await indexer.build_index(
+                book_id, workspace,
+                monitor=monitor, parent_id=parent_id,
+            )
+            await self._books_store.upsert_index(
+                book_id, indexer.index_type, "built",
+                count=result.count, built_at=utcnow_ts(),
+            )
+            self.logger.info("index built", type=result.index_type, count=result.count)
+            if monitor and parent_id:
+                monitor.update_label(parent_id, f"index:{indexer.index_type} ({result.count})")
+                monitor.finish(parent_id)
+            if monitor and idx_root:
+                monitor.advance(idx_root, 1)
+            return result
+        except Exception as e:
+            await self._books_store.upsert_index(
+                book_id, indexer.index_type, "failed",
+                error=repr(e),
+            )
+            self.logger.warning("index build failed", type=indexer.index_type, error=repr(e))
+            if monitor and parent_id:
+                monitor.fail(parent_id, error=repr(e))
+            if monitor and idx_root:
+                monitor.advance(idx_root, 1)
             raise
