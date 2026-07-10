@@ -130,10 +130,17 @@ class LlmMetadataExtractor(LoggingMixin, AsyncResourceMixin):
                     SystemMessage(content=_SYSTEM_PROMPT),
                     UserMessage(content=prompt),
                 ],
-                options=CompletionOptions(max_tokens=512, temperature=0.0),
+                options=CompletionOptions(max_tokens=1024, temperature=0.0),
             )
             raw_text = response["message"].content
-            self.logger.debug("llm response", round=round_idx, response_preview=raw_text[:200])
+            finish_reason = response.get("finish_reason", "")
+            self.logger.info(
+                "llm response",
+                round=round_idx,
+                finish_reason=finish_reason,
+                output_tokens=response.get("usage", {}).get("output_tokens", 0),
+                response_preview=raw_text[:400],
+            )
 
             parsed = self._parse_response(raw_text)
             if parsed is None:
