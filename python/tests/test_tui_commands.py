@@ -14,6 +14,7 @@ import tempfile
 from textual.widgets import Input
 
 from bookscout.books import Book
+from bookscout.doccompiler.index_provider import IndexContext
 from bookscout.doccompiler.index_provider import IndexProvider
 from bookscout.doccompiler.index_registry import IndexRegistry
 from bookscout.repl.config import BookScoutConfig
@@ -22,15 +23,15 @@ from bookscout.repl.tui import BookScoutTui
 # -- Fakes -------------------------------------------------------------------
 
 
-def _fake_indexer_factory(_logger, _books_store, **_kw):
+def _fake_indexer_factory(_ctx: IndexContext):
     return type("FakeIndexer", (), {"index_type": "fake"})()
 
 
-def _fake_tool_factory(_indexer, _store, **_kw):
+def _fake_tool_factory(_indexer, _store, _ctx: IndexContext):
     return []
 
 
-def _fake_store_factory(_db_path, _logger, **_kw):
+def _fake_store_factory(_ctx: IndexContext):
     return None
 
 
