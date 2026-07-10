@@ -1082,11 +1082,43 @@ class BookScoutTui(App[None]):
             )  # type: ignore[arg-type]
             return
 
+        if low == ":compact":
+            self._set_status("  compacting conversation...")
+            self.run_worker(
+                self._run_compact(),
+                exclusive=True,
+                group="chat",
+            )  # type: ignore[arg-type]
+            return
+
         if low.startswith(":"):
             self._set_status(f"  Unknown chat command: {text}")
             return
 
         self.run_worker(self._run_chat(text), exclusive=True, group="chat")  # type: ignore[arg-type]
+
+    async def _run_compact(self) -> None:
+        """Force-compact the conversation history via :compact command."""
+        assert self._repl_context is not None
+        assert self._session_id is not None
+        mode = self._repl_context._modes.get(self._session_id)
+        if mode is None:
+            self._set_status("  no active reading mode to compact")
+            return
+        try:
+            summary = await mode.compact()
+            if summary:
+                self._chat_markdown += f"\n*[compacted] — {summary}*\n\n"
+            else:
+                self._chat_markdown += "\n*[compacted] — (too few messages to compact)*\n\n"
+            log = self.query_one("#chat_log", Markdown)
+            await log.update(self._chat_markdown)
+            log.scroll_end(animate=False)
+            self._set_status("  compaction done")
+        except Exception as e:
+            self._set_status(f"  compaction failed: {e}")
+        finally:
+            self._focus_input()
 
     async def _run_chat(self, user_input: str) -> None:
         assert self._repl_context is not None
@@ -1285,6 +1317,7 @@ class BookScoutTui(App[None]):
         ("book", "Open book N in chat: :book N", ("select",)),
         ("bottom", "Scroll to the bottom of the chat", ("chat",)),
         ("clear", "Clear the chat log", ("chat",)),
+        ("compact", "Manually compact conversation history", ("chat",)),
         ("quit", "Exit BookScout", ("select", "chat", "compile", "index_select", "builder_select")),
         ("compile", "Compile a new book from a source file", ("select",)),
         ("delete", "Delete book N: :delete N", ("select",)),

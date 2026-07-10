@@ -237,6 +237,72 @@ class Mode(LoggingMixin, AsyncResourceMixin, abc.ABC):
         """Append an assistant message to the conversation history."""
         self._messages.append({"role": "assistant", "content": content})
 
+    async def compact(self) -> str:
+        """Force-compact the conversation history unconditionally.
+
+        Unlike :meth:`_maybe_auto_compact`, this always compacts regardless
+        of token count, as long as there are more messages than
+        ``_COMPACT_KEEP_MESSAGES``. Summarizes the oldest messages via the
+        LLM and replaces them with a compact summary.
+
+        Returns:
+            The generated summary text, or an empty string if no compaction
+            was performed (too few messages).
+        """
+        if len(self._messages) <= _COMPACT_KEEP_MESSAGES:
+            self.logger.info("manual compact skipped: too few messages", count=len(self._messages))
+            return ""
+
+        self.logger.info(
+            "manual compact",
+            messages=len(self._messages),
+            budget=self._max_context_tokens,
+        )
+
+        summary_text = await self._compact_impl()
+        if summary_text:
+            self.logger.info("manual compact done", kept=len(self._messages))
+        return summary_text
+
+    async def _compact_impl(self) -> str:
+        """Internal: split messages, summarize old ones, replace in-place.
+
+        Returns the summary text, or empty string if nothing to compact.
+        """
+        if len(self._messages) <= _COMPACT_KEEP_MESSAGES:
+            return ""
+
+        old_messages = self._messages[:-_COMPACT_KEEP_MESSAGES]
+        recent_messages = self._messages[-_COMPACT_KEEP_MESSAGES:]
+
+        old_text = "\n".join(f"[{m['role']}] {m['content']}" for m in old_messages)
+
+        from bookscout.llm.types import CompletionOptions
+        from bookscout.llm.types import SystemMessage
+        from bookscout.llm.types import UserMessage
+
+        summary_response = await self.llm.chat_completion(
+            [
+                SystemMessage(
+                    content=(
+                        "Summarize the following conversation history concisely. "
+                        "Preserve key facts, decisions, and context. "
+                        "Output only the summary, no preamble."
+                    )
+                ),
+                UserMessage(content=old_text),
+            ],
+            options=CompletionOptions(max_tokens=500, temperature=0.3),
+        )
+        summary_text = summary_response["message"].content.strip()
+
+        # Replace old messages with a summary as a user message.
+        self._messages = [
+            {"role": "user", "content": f"[Conversation summary]\n{summary_text}"},
+            *recent_messages,
+        ]
+        return summary_text
+
     async def _maybe_auto_compact(self) -> bool:
         """Check if conversation needs compaction and do it if so.
 
@@ -264,40 +330,11 @@ class Mode(LoggingMixin, AsyncResourceMixin, abc.ABC):
             budget=self._max_context_tokens,
         )
 
-        # Split: keep the most recent messages, summarize the rest.
-        old_messages = self._messages[:-_COMPACT_KEEP_MESSAGES]
-        recent_messages = self._messages[-_COMPACT_KEEP_MESSAGES:]
-
-        # Build summary text.
-        old_text = "\n".join(f"[{m['role']}] {m['content']}" for m in old_messages)
-
-        from bookscout.llm.types import CompletionOptions
-        from bookscout.llm.types import SystemMessage
-        from bookscout.llm.types import UserMessage
-
-        summary_response = await self.llm.chat_completion(
-            [
-                SystemMessage(
-                    content=(
-                        "Summarize the following conversation history concisely. "
-                        "Preserve key facts, decisions, and context. "
-                        "Output only the summary, no preamble."
-                    )
-                ),
-                UserMessage(content=old_text),
-            ],
-            options=CompletionOptions(max_tokens=500, temperature=0.3),
-        )
-        summary_text = summary_response["message"].content.strip()
-
-        # Replace old messages with a summary as a system message.
-        self._messages = [
-            {"role": "user", "content": f"[Conversation summary]\n{summary_text}"},
-            *recent_messages,
-        ]
-
-        self.logger.info("auto-compact done", kept=len(self._messages))
-        return True
+        summary_text = await self._compact_impl()
+        if summary_text:
+            self.logger.info("auto-compact done", kept=len(self._messages))
+            return True
+        return False
 
     # ------------------------------------------------------------------ checkpoint
 
