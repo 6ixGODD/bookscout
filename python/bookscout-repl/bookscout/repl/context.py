@@ -65,8 +65,12 @@ class ReplContext(LoggingMixin, AsyncResourceMixin):
         logger: Logger | None = None,
     ) -> None:
         self._config = config
-        self._data_dir = pathlib.Path(config.data_dir).resolve()
+        self._workdir = pathlib.Path(config.workdir).resolve()
+        self._data_dir = config.resolved_data_dir.resolve()
         self._data_dir.mkdir(parents=True, exist_ok=True)
+        self._workdir.mkdir(parents=True, exist_ok=True)
+        (self._workdir / "skills").mkdir(parents=True, exist_ok=True)
+        (self._workdir / "logs").mkdir(parents=True, exist_ok=True)
 
         if logger is None:
             logger = _build_logger(config, name="bookscout-repl")
@@ -266,6 +270,11 @@ class ReplContext(LoggingMixin, AsyncResourceMixin):
     def data_dir(self) -> pathlib.Path:
         """Resolved data directory."""
         return self._data_dir
+
+    @property
+    def workdir(self) -> pathlib.Path:
+        """Resolved workdir root."""
+        return self._workdir
 
     @property
     def books_store(self) -> BooksStore:

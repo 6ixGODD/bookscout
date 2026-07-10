@@ -4,26 +4,40 @@
 
 data_dir: ./data
 
+workdir: '~/.bookscout'
+
 chatmodel:
-  api_key: ""           # Set via env: BOOKSCOUT_CHATMODEL__API_KEY
-  base_url: "https://api.deepseek.com"
-  model: "deepseek-v4-flash"
+  api_key: '' # Set via env: BOOKSCOUT_CHATMODEL__API_KEY
+  base_url: 'https://api.deepseek.com'
+  model: 'deepseek-v4-flash'
   stateless: true
 
 embedding:
-  api_key: ""           # Set via env: BOOKSCOUT_EMBEDDING__API_KEY
-  base_url: "https://dashscope.aliyuncs.com/compatible-mode/v1"
-  model: "text-embedding-v4"
+  api_key: '' # Set via env: BOOKSCOUT_EMBEDDING__API_KEY
+  base_url: 'https://dashscope.aliyuncs.com/compatible-mode/v1'
+  model: 'text-embedding-v4'
   batch_size: 10
 
 mineru:
-  api_token: ""         # Set via env: BOOKSCOUT_MINERU__API_TOKEN
+  api_token: '' # Set via env: BOOKSCOUT_MINERU__API_TOKEN
 
 logging:
-  level: "WARNING"      # DEBUG, INFO, WARNING, ERROR
-  file: ""              # Optional log file path
+  level: 'WARNING' # DEBUG, INFO, WARNING, ERROR
+  file: '' # Optional log file path
+
 
 # The `env` section sets environment variables at load time.
 # Useful for secrets you don't want in the YAML itself.
 # env:
 #   MINERU_API_TOKEN: "your-token-here"
+
+# External MCP servers (optional)
+# mcp_servers:
+#   - name: "my-tools"
+#     url: "http://localhost:8080/mcp"
+
+# User skills (optional)
+# skills:
+#   - name: "close-reading"
+#     path: "skills/close-reading.md"
+#     description: "Close reading mode: analyze text structure..."

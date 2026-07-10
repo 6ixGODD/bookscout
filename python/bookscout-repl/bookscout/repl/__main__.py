@@ -59,6 +59,7 @@ def _resolve_config(
     data_dir: str | None,
     log_level: str | None,
     debug_file: pathlib.Path | None,
+    workdir: str | None = None,
 ) -> BookScoutConfig:
     """Resolve the BookScoutConfig from CLI flags + YAML + env."""
     if config_file is None:
@@ -72,6 +73,8 @@ def _resolve_config(
     bs_config = BookScoutConfig.from_yaml(config_file)
 
     overrides = _parse_set_overrides(set_overrides or [])
+    if workdir is not None:
+        overrides["workdir"] = workdir
     if data_dir is not None:
         overrides["data_dir"] = data_dir
     if log_level is not None and "logging.level" not in overrides:
@@ -165,6 +168,10 @@ def tui(
             help="Override config value (dotted path, e.g. chatmodel.model=deepseek-v4-pro). Repeatable.",
         ),
     ] = None,
+    workdir: t.Annotated[
+        str | None,
+        typer.Option("--workdir", "-w", help=f"Workdir root. Default: {_DEFAULT_WORKSPACE}"),
+    ] = None,
     data_dir: t.Annotated[
         str | None,
         typer.Option("--data-dir", help=f"Override data directory. Default: {_DEFAULT_WORKSPACE}"),
@@ -191,7 +198,7 @@ def tui(
     ] = None,
 ) -> None:
     """Launch the interactive Textual TUI."""
-    bs_config = _resolve_config(config_file, set_overrides, data_dir, log_level, debug_file)
+    bs_config = _resolve_config(config_file, set_overrides, data_dir, log_level, debug_file, workdir)
     from .tui import BookScoutTui
 
     tui_app = BookScoutTui(bs_config, initial_book_id=book_id)
@@ -218,6 +225,10 @@ def serve(
             help="Override config value (dotted path, e.g. chatmodel.model=deepseek-v4-pro). Repeatable.",
         ),
     ] = None,
+    workdir: t.Annotated[
+        str | None,
+        typer.Option("--workdir", "-w", help=f"Workdir root. Default: {_DEFAULT_WORKSPACE}"),
+    ] = None,
     data_dir: t.Annotated[
         str | None,
         typer.Option("--data-dir", help=f"Override data directory. Default: {_DEFAULT_WORKSPACE}"),
@@ -238,7 +249,7 @@ def serve(
     """Run the stdio REPL server (transport over ReplContext)."""
     import asyncio
 
-    bs_config = _resolve_config(config_file, set_overrides, data_dir, log_level, None)
+    bs_config = _resolve_config(config_file, set_overrides, data_dir, log_level, None, workdir)
 
     if daemon:
         bs_config = bs_config.with_overrides({

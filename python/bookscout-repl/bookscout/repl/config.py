@@ -54,6 +54,24 @@ class LoggingTargetConfig(BaseModel):
     pretty: bool = Field(default=True, description="Pretty-print (colored) output")
 
 
+class McpServerConfig(BaseModel):
+    """External MCP server definition."""
+
+    name: str = Field(..., description="Display name for this MCP server")
+    url: str | None = Field(default=None, description="Streamable HTTP endpoint URL")
+    command: str | None = Field(default=None, description="Command to spawn (stdio transport)")
+    args: list[str] = Field(default_factory=list, description="Arguments for command")
+    env: dict[str, str] = Field(default_factory=dict, description="Environment variables for command")
+
+
+class SkillConfig(BaseModel):
+    """User-defined skill definition."""
+
+    name: str = Field(..., description="Skill identifier")
+    path: str = Field(..., description="Path to skill .md file, relative to workdir/skills/")
+    description: str = Field(default="", description="What this skill does — shown to agent")
+
+
 class LoggingConfigSection(BaseModel):
     """Logging configuration for the REPL server."""
 
@@ -137,14 +155,39 @@ class BookScoutConfig(BaseSettings):
         extra="ignore",
     )
 
-    data_dir: str = Field(
+    workdir: str = Field(
         default=str(pathlib.Path.home() / ".bookscout"),
-        description="Base directory for book data, workspaces, and indexes.",
+        description="Root workdir — everything lives here (config, data, sessions, skills, logs).",
     )
+
+    data_dir: str = Field(
+        default="",  # empty means "{workdir}/data"
+        description="Base directory for book data, workspaces, and indexes. Defaults to {workdir}/data.",
+    )
+
     chatmodel: ChatModelConfig = Field(default_factory=ChatModelConfig)
     embedding: EmbeddingConfig = Field(default_factory=EmbeddingConfig)
     mineru: MinerUConfig = Field(default_factory=MinerUConfig)
     logging: LoggingConfigSection = Field(default_factory=LoggingConfigSection)
+    mcp_servers: list[McpServerConfig] = Field(
+        default_factory=list,
+        description="External MCP servers to connect at startup.",
+    )
+    skills: list[SkillConfig] = Field(
+        default_factory=list,
+        description="User-defined skills available to the agent.",
+    )
+
+    @property
+    def resolved_data_dir(self) -> pathlib.Path:
+        """Resolve data_dir, defaulting to {workdir}/data."""
+        if self.data_dir:
+            return pathlib.Path(self.data_dir)
+        return pathlib.Path(self.workdir) / "data"
+
+    @property
+    def resolved_workdir(self) -> pathlib.Path:
+        return pathlib.Path(self.workdir).resolve()
 
     @classmethod
     def from_yaml(cls, file: str | os.PathLike[str]) -> BookScoutConfig:
@@ -227,5 +270,7 @@ __all__ = [
     "EmbeddingConfig",
     "LoggingConfigSection",
     "LoggingTargetConfig",
+    "McpServerConfig",
     "MinerUConfig",
+    "SkillConfig",
 ]

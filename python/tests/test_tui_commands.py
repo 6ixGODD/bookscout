@@ -414,3 +414,18 @@ async def test_input_is_plain_no_prefix() -> None:
         si = _select_input(app)
         assert si.value == ""
         assert not si.placeholder
+
+
+# -- Tests: config defaults ---------------------------------------------------
+
+
+def test_config_workdir_default() -> None:
+    config = BookScoutConfig()
+    assert config.workdir == str(pathlib.Path.home() / ".bookscout")
+    assert config.mcp_servers == []
+    assert config.skills == []
+
+
+def test_config_resolved_data_dir() -> None:
+    config = BookScoutConfig(workdir="/tmp/test_bs")
+    assert str(config.resolved_data_dir) == str(pathlib.Path("/tmp/test_bs/data"))
