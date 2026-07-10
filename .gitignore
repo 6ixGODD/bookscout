@@ -35,3 +35,6 @@ demos/
 # Backup
 *.backup
 *.bak
+
+# OpenCode
+opencode.local.*json

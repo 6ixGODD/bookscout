@@ -19,12 +19,14 @@ def _indexer_factory(logger, books_store, **kw):
     )
 
 
+# pylint: disable-next=unused-argument
 def _store_factory(db_path, logger, **kw):  # noqa: ARG001
     from .__init__ import ChunkStore
 
     return ChunkStore(logger=logger, db_path=db_path)
 
 
+# pylint: disable-next=unused-argument
 def _tool_factory(indexer, store, **kw):  # noqa: ARG001
     from .tools import create_chunk_tools
 

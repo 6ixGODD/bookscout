@@ -68,7 +68,7 @@ class LoggingConfigSection(BaseModel):
     file_level: str = Field(default="DEBUG", description="Log level for the file target")
 
 
-def _is_non_default(cls: type, key: str, value: t.Any) -> bool:
+def _is_non_default(cls: type[BaseModel], key: str, value: t.Any) -> bool:
     """Check if a field value differs from its default."""
     field = cls.model_fields.get(key)
     if field is None:
@@ -99,24 +99,24 @@ def _apply_env_overrides(cls: type[BookScoutConfig], data: dict[str, t.Any], env
             val = env.get(env_prefix)
             if val is not None:
                 # Try to parse as JSON for bools/ints.
-                try:
-                    import json
+                import json
 
+                try:
                     parsed = json.loads(val)
                 except (json.JSONDecodeError, TypeError):
                     parsed = val
                 data[field_name] = parsed
 
 
-def _apply_nested_env(model_cls: type, data: dict[str, t.Any], prefix: str, env: dict[str, str]) -> None:
+def _apply_nested_env(model_cls: type[BaseModel], data: dict[str, t.Any], prefix: str, env: dict[str, str]) -> None:
     """Apply env overrides for a nested BaseModel."""
     for field_name in model_cls.model_fields:
         env_key = f"{prefix}{field_name.upper()}"
         val = env.get(env_key)
         if val is not None:
-            try:
-                import json
+            import json
 
+            try:
                 parsed = json.loads(val)
             except (json.JSONDecodeError, TypeError):
                 parsed = val
@@ -137,7 +137,10 @@ class BookScoutConfig(BaseSettings):
         extra="ignore",
     )
 
-    data_dir: str = Field(default="data", description="Base directory for book data, workspaces, and indexes.")
+    data_dir: str = Field(
+        default=str(pathlib.Path.home() / ".bookscout"),
+        description="Base directory for book data, workspaces, and indexes.",
+    )
     chatmodel: ChatModelConfig = Field(default_factory=ChatModelConfig)
     embedding: EmbeddingConfig = Field(default_factory=EmbeddingConfig)
     mineru: MinerUConfig = Field(default_factory=MinerUConfig)
@@ -206,12 +209,12 @@ class BookScoutConfig(BaseSettings):
 
     def apply_env_vars(self) -> None:
         """Sync config values into os.environ for components that read them directly."""
-        if self.mineru.api_token:
-            os.environ["MINERU_API_TOKEN"] = self.mineru.api_token
+        if self.mineru.api_token:  # pylint: disable=no-member
+            os.environ["MINERU_API_TOKEN"] = self.mineru.api_token  # pylint: disable=no-member
 
     def resolve_log_file_path(self) -> pathlib.Path:
         """Resolve the log file path relative to data_dir."""
-        log_file = pathlib.Path(self.logging.file)
+        log_file = pathlib.Path(self.logging.file)  # pylint: disable=no-member
         if not log_file.is_absolute():
             log_file = pathlib.Path(self.data_dir) / log_file
         log_file.parent.mkdir(parents=True, exist_ok=True)

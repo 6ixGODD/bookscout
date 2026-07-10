@@ -1,4 +1,4 @@
-"""BookScout TUI — vim-like minimal terminal UI over ReplContext.
+"""BookScout TUI 閳?vim-like minimal terminal UI over ReplContext.
 
 Layout::
 
@@ -16,6 +16,7 @@ Pure black background. No borders. Focus always on input.
 from __future__ import annotations
 
 import contextlib
+import json
 import os
 import pathlib
 import typing as t
@@ -45,18 +46,34 @@ if t.TYPE_CHECKING:
 
 
 class CommandInput(Input):
-    """A plain :class:`Input` whose arrow-key / Space handling is delegated to
-    the owning :class:`BookScoutTui` when the app is in the ``index_select``
-    phase.
-
-    During any other phase the input behaves exactly like a stock ``Input``.
-    """
+    """A plain :class:`Input` with arrow-key / Space / colon-palette delegation."""
 
     async def _on_key(self, event: events.Key) -> None:
         app = self.app
-        if getattr(app, "phase", "") == "index_select" and event.key in ("up", "down", "space"):
-            # Stop the Input from inserting the space / moving the caret, then
-            # let the App-level handler take over.
+        phase = getattr(app, "phase", "")
+        palette = getattr(app, "_palette_open", False)
+
+        if palette:
+            event.stop()
+            event.prevent_default()
+            if event.key == "escape":
+                app._close_palette()  # type: ignore[attr-defined]
+            elif event.key == "up":
+                app._palette_move(-1)  # type: ignore[attr-defined]
+            elif event.key == "down":
+                app._palette_move(1)  # type: ignore[attr-defined]
+            elif event.key == "enter":
+                app._accept_palette()  # type: ignore[attr-defined]
+            elif event.key == "backspace":
+                # Let backspace through to update input value, then re-render.
+                await super()._on_key(event)
+                app._render_palette()  # type: ignore[attr-defined]
+            elif event.character is not None and event.character.isprintable():
+                await super()._on_key(event)
+                app._render_palette()  # type: ignore[attr-defined]
+            return
+
+        if phase in ("index_select", "builder_select") and event.key in ("up", "down", "space"):
             event.stop()
             event.prevent_default()
             if event.key == "up":
@@ -68,19 +85,38 @@ class CommandInput(Input):
             return
         await super()._on_key(event)
 
+    def on_input_changed(self, event: Input.Changed) -> None:
+        """Detect colon-command mode from input value."""
+        app = self.app
+        if getattr(app, "_skip_palette", False):
+            return
+        value = event.value
+        if value.startswith(":") and " " not in value:
+            app._open_palette()  # type: ignore[attr-defined]
+        elif getattr(app, "_palette_open", False):
+            app._close_palette()  # type: ignore[attr-defined]
+
 
 class BookScoutTui(App[None]):
     """The BookScout terminal UI."""
 
     CSS = """
+    $surface: #000000;
+    $panel: #000000;
+    $boost: #111111;
+    $text-muted: #999999;
     Screen {
         background: #000000;
         color: #c0c0c0;
+        scrollbar-size: 0 0;
+    }
+    * {
+        scrollbar-size: 0 0;
     }
     #status_bar {
         dock: bottom;
         height: 1;
-        color: #888888;
+        color: #666666;
         padding: 0 1;
     }
     #header {
@@ -94,8 +130,9 @@ class BookScoutTui(App[None]):
         height: 1;
     }
     #header_hint {
-        color: #666666;
+        color: #555555;
         height: auto;
+        min-height: 1;
     }
     #header_rule {
         color: #ffffff;
@@ -109,8 +146,13 @@ class BookScoutTui(App[None]):
     }
     .log-area {
         height: 1fr;
+        scrollbar-size: 0 0;
     }
-    #index_select_hint {
+    #chat_log {
+        overflow-y: auto;
+        scrollbar-size: 0 0;
+    }
+    #index_select_hint, #builder_select_hint {
         color: #c0c0c0;
         height: 1;
     }
@@ -120,7 +162,8 @@ class BookScoutTui(App[None]):
         padding: 0 0 0 0;
     }
     #input_area {
-        height: 3;
+        height: auto;
+        min-height: 3;
         padding: 0 0 0 0;
     }
     #select_input, #chat_input {
@@ -131,6 +174,31 @@ class BookScoutTui(App[None]):
         padding: 0 1;
         height: auto;
         max-height: 6;
+    }
+    #command_palette {
+        background: #1a1a1a;
+        border: none;
+        height: auto;
+        max-height: 14;
+        margin: 0 1;
+        display: none;
+        scrollbar-size: 0 0;
+    }
+    #command_palette ListView {
+        background: #1a1a1a;
+        scrollbar-size: 0 0;
+    }
+    #command_palette ListView > ListItem {
+        padding: 0 1;
+        background: #1a1a1a;
+        color: #aaaaaa;
+    }
+    #command_palette ListView > ListItem.--highlight {
+        background: #333333;
+        color: #ffffff;
+    }
+    Container {
+        background: #000000;
     }
     Rule {
         color: #ffffff;
@@ -164,6 +232,7 @@ class BookScoutTui(App[None]):
 
     BINDINGS = [
         ("ctrl+c", "quit", "Quit"),
+        ("ctrl+o", "toggle_verbose_tools", "Toggle verbose tool calls"),
     ]
 
     phase: reactive[str] = reactive("init", layout=True)
@@ -185,7 +254,6 @@ class BookScoutTui(App[None]):
         self._streaming_buffer: list[str] = []
         self._streaming_started = False
         self._chat_busy = False
-        self._assistant_first_line = True
         self._spinner_frames = ["|", "/", "-", "\\"]
         self._spinner_idx = 0
         self._spinner_timer: t.Any = None
@@ -193,10 +261,12 @@ class BookScoutTui(App[None]):
         self._compile_source = ""
         self._selected_index_types: set[str] = set()
         self._index_focus_idx: int = 0
+        self._selected_builder: str = "rule"
+        self._verbose_tools: bool = False
         self._chat_markdown: str = ""
         self._post_compile_target = "select"
+        self._palette_open = False
 
-    # -- Composition --
     def compose(self) -> ComposeResult:
         with Container(id="header"):
             yield Static("BookScout", id="header_brand")
@@ -212,6 +282,10 @@ class BookScoutTui(App[None]):
                 yield Static("Indexes to build:", id="index_select_hint")
                 yield Static("", id="index_select_list", classes="log-area")
                 yield Static("", id="index_select_error")
+            # Builder select panel (shown after index selection).
+            with Container(id="builder_select_panel"):
+                yield Static("Builder mode:", id="builder_select_hint")
+                yield Static("", id="builder_select_list", classes="log-area")
             # Compile panel
             with Container(id="compile_panel"):
                 yield RichLog(id="compile_log", markup=True, wrap=True, classes="log-area")
@@ -223,6 +297,8 @@ class BookScoutTui(App[None]):
         with Container(id="input_area"):
             yield CommandInput(id="select_input")
             yield CommandInput(id="chat_input")
+        with Container(id="command_palette"):
+            yield ListView(id="palette_list")
         yield Static("", id="status_bar")
 
     def on_mount(self) -> None:
@@ -263,10 +339,7 @@ class BookScoutTui(App[None]):
 
         self._refresh_books_list()
         self.phase = "select"
-        self._set_status(
-            f"  {len(self._books)} book(s)"
-            + ("" if ctx.has_chat else "  [no LLM/embedding]")
-        )
+        self._set_status(f"  {len(self._books)} book(s)" + ("" if ctx.has_chat else "  [no LLM/embedding]"))
         self._focus_input()
 
     # -- Phase switching --
@@ -282,7 +355,7 @@ class BookScoutTui(App[None]):
     def _focus_input(self) -> None:
         """Keep focus on the input box at all times."""
         with contextlib.suppress(Exception):
-            if self.phase in ("select", "index_select"):
+            if self.phase in ("select", "index_select", "builder_select"):
                 self.query_one("#select_input", Input).focus()
             elif self.phase == "chat":
                 self.query_one("#chat_input", Input).focus()
@@ -290,23 +363,15 @@ class BookScoutTui(App[None]):
     @staticmethod
     def _header_hint_for_phase(phase: str) -> str:
         if phase == "select":
-            return (
-                ":book N  read    "
-                ":compile <path>  add    "
-                ":delete N  remove    "
-                ":quit  quit"
-            )
+            return "type : for commands"
         if phase == "index_select":
-            return "Space/Enter  toggle    :go  build    :back  cancel"
+            return "type : for commands    Space/Enter  toggle    Enter/:go  next"
+        if phase == "builder_select":
+            return "type : for commands    Space/Enter  pick    Enter/:go  build"
         if phase == "compile":
-            return "compiling..."
+            return ""
         if phase == "chat":
-            return (
-                ":back  books    "
-                ":clear  clear    "
-                ":addindex X / :rmindex X  indexes    "
-                ":quit  quit"
-            )
+            return "type : for commands"
         return ""
 
     def _update_header_hint(self, phase: str) -> None:
@@ -317,17 +382,24 @@ class BookScoutTui(App[None]):
         panel_map = {
             "select": "select_panel",
             "index_select": "index_select_panel",
+            "builder_select": "builder_select_panel",
             "compile": "compile_panel",
             "chat": "chat_panel",
         }
         active = panel_map.get(phase, "")
-        for panel_id in ("select_panel", "index_select_panel", "compile_panel", "chat_panel"):
+        for panel_id in (
+            "select_panel",
+            "index_select_panel",
+            "builder_select_panel",
+            "compile_panel",
+            "chat_panel",
+        ):
             with contextlib.suppress(Exception):
-                self.query_one(f"#{panel_id}", Container).display = (panel_id == active)
+                self.query_one(f"#{panel_id}", Container).display = panel_id == active
         # Show the right input.
         with contextlib.suppress(Exception):
-            self.query_one("#select_input", Input).display = (phase in ("select", "index_select"))
-            self.query_one("#chat_input", Input).display = (phase in ("chat", "compile"))
+            self.query_one("#select_input", Input).display = phase in ("select", "index_select", "builder_select")
+            self.query_one("#chat_input", Input).display = phase in ("chat", "compile")
 
     def _set_status(self, text: str) -> None:
         with contextlib.suppress(Exception):
@@ -352,7 +424,7 @@ class BookScoutTui(App[None]):
             if registry is not None:
                 built = set(book.indexes)
                 for provider in registry.all():
-                    mark = "√" if provider.index_type in built else "×"
+                    mark = "\u221a" if provider.index_type in built else "\u00d7"
                     style = "bold white" if provider.index_type in built else "dim"
                     flags.append(Text(f" {mark} {provider.display_name} ", style=style))
             else:
@@ -405,9 +477,12 @@ class BookScoutTui(App[None]):
         self._enter_chat(self._books[idx])
 
     def on_input_submitted(self, event: Input.Submitted) -> None:
+        self._skip_palette = False
         if event.input.id == "select_input":
             if self.phase == "index_select":
                 self._handle_index_select_input(event.value.strip())
+            elif self.phase == "builder_select":
+                self._handle_builder_select_input(event.value.strip())
             else:
                 self._handle_select_input(event.value.strip())
         elif event.input.id == "chat_input":
@@ -434,7 +509,7 @@ class BookScoutTui(App[None]):
         if low == ":back":
             self._set_status("  already at book list")
             return
-        # :book N — enter chat for a single book.
+        # :book N 閳?enter chat for a single book.
         if low.startswith(":book") or low.startswith(":b "):
             parts = value.split(None, 1)
             if len(parts) < 2 or not parts[1].strip():
@@ -453,7 +528,7 @@ class BookScoutTui(App[None]):
             else:
                 self._set_status(f"  no book #{arg}")
             return
-        # :compile <path> — add a new book.
+        # :compile <path> 閳?add a new book.
         if low.startswith(":compile") or low.startswith(":c "):
             parts = value.split(None, 1)
             if len(parts) < 2 or not parts[1].strip():
@@ -465,7 +540,55 @@ class BookScoutTui(App[None]):
             self._clear_error()
             self._enter_index_select(path)
             return
-        # :delete N — remove a book and its workspace.
+        # :addindex N <type> 閳?add an index to an existing book.
+        if low.startswith(":addindex ") or low.startswith(":addidx "):
+            parts = value.split()
+            if len(parts) < 3 or not parts[1].isdigit():
+                self._set_status("  usage: :addindex N <type>")
+                return
+            idx = int(parts[1]) - 1
+            if not (0 <= idx < len(self._books)):
+                self._set_status(f"  no book #{parts[1]}")
+                return
+            book = self._books[idx]
+            idx_type = parts[2].lower()
+            if self._repl_context is None:
+                return
+            provider = self._repl_context.registry.by_type(idx_type)
+            if provider is None:
+                self._set_status(f"  unknown index: {idx_type}")
+                return
+            if idx_type in set(book.indexes):
+                self._set_status(f"  {idx_type} already built for #{parts[1]}")
+                return
+            self.run_worker(
+                self._start_add_index(book.id, {idx_type}, post_target="select"),
+                exclusive=True,
+                group="compile",
+            )  # type: ignore[arg-type]
+            return
+        # :rmindex N <type> 閳?remove an index from an existing book.
+        if low.startswith(":rmindex ") or low.startswith(":rmidx "):
+            parts = value.split()
+            if len(parts) < 3 or not parts[1].isdigit():
+                self._set_status("  usage: :rmindex N <type>")
+                return
+            idx = int(parts[1]) - 1
+            if not (0 <= idx < len(self._books)):
+                self._set_status(f"  no book #{parts[1]}")
+                return
+            book = self._books[idx]
+            idx_type = parts[2].lower()
+            if idx_type not in set(book.indexes):
+                self._set_status(f"  {idx_type} not built for #{parts[1]}")
+                return
+            self.run_worker(
+                self._do_rm_index(book.id, idx_type),
+                exclusive=True,
+                group="compile",
+            )  # type: ignore[arg-type]
+            return
+        # :delete N 閳?remove a book and its workspace.
         if low.startswith(":delete") or low.startswith(":del"):
             parts = value.split()
             if len(parts) < 2 or not parts[1].isdigit():
@@ -494,87 +617,95 @@ class BookScoutTui(App[None]):
         self._set_status(f"  select indexes for: {pathlib.Path(source_path).name}")
         self._focus_input()
 
-    def _render_index_select(self) -> None:
-        """Render the index selection list.
-
-        Each provider gets a line::
-
-            [*]  Chunk    Passage-level chunks for precise citation ...
-            [ ]  Summary  Book-level digest; cheap ...
-            [ ]  Graph    Relationship map between entities ...
-
-        - ``[*]`` indicates selected; ``[ ]`` unselected.
-        - The currently focused row uses bold-white text; all others are grey.
-        - Display names are padded to a fixed width so all rows align.
-        """
+    def _index_select_rows(self) -> list[tuple[str, str, str]]:
+        """Return index provider rows for the list."""
         assert self._repl_context is not None
-        registry = self._repl_context.registry
-        providers = registry.all()
-        name_w = max((len(p.display_name) for p in providers), default=0)
+        return [
+            (f"index:{p.index_type}", p.display_name, p.description or "") for p in self._repl_context.registry.all()
+        ]
+
+    def _render_index_select(self) -> None:
+        """Render the index selection list (indexes only)."""
+        assert self._repl_context is not None
+        rows = self._index_select_rows()
+        name_w = max((len(label) for _key, label, _desc in rows), default=0)
         out = Text()
-        for idx, provider in enumerate(providers):
-            checked = provider.index_type in self._selected_index_types
-            box = "[*]" if checked else "[ ]"
+        for idx, (key, label, desc) in enumerate(rows):
+            if idx > 0:
+                out.append(Text("\n"))
             focused = idx == self._index_focus_idx
             style = "bold white" if focused else "#888888"
             desc_style = "#cccccc" if focused else "#444444"
-            if idx > 0:
-                out.append(Text("\n"))
+            index_type = key.split(":", 1)[1]
+            checked = index_type in self._selected_index_types
+            box = "[*]" if checked else "[ ]"
             out.append(Text(f"  {box}  ", style=style))
-            out.append(Text(provider.display_name.ljust(name_w), style=style))
-            out.append(Text("    "))
-            out.append(Text(provider.description or "", style=desc_style))
+            out.append(Text(label.ljust(name_w), style=style))
+            if desc:
+                out.append(Text("    "))
+                out.append(Text(desc, style=desc_style))
         out.append(Text("\n\n"))
-        out.append(Text("  up/down  focus    Space  toggle    Enter/:go  confirm    :back  cancel", style="#666666"))
+        out.append(
+            Text(
+                "  up/down  focus    Space  toggle    Enter/:go  next    :back  cancel",
+                style="#666666",
+            )
+        )
         with contextlib.suppress(Exception):
             self.query_one("#index_select_list", Static).update(out)
         names = ", ".join(sorted(self._selected_index_types)) or "none"
         self._set_status(f"  indexes: {names}")
 
     def _move_index_focus(self, delta: int) -> None:
-        """Move the index selection focus by ``delta`` (clamped to provider range)."""
-        assert self._repl_context is not None
-        providers = self._repl_context.registry.all()
-        if not providers:
+        """Move the index selection focus by ``delta`` (clamped to row range)."""
+        if self.phase == "builder_select":
+            rows = self._builder_rows()
+        else:
+            assert self._repl_context is not None
+            rows = self._index_select_rows()
+        if not rows:
             return
-        n = len(providers)
+        n = len(rows)
         self._index_focus_idx = (self._index_focus_idx + delta) % n
-        self._render_index_select()
+        if self.phase == "builder_select":
+            self._render_builder_select()
+        else:
+            self._render_index_select()
 
     def _toggle_index_focus(self) -> None:
-        """Toggle the currently focused index's selection membership."""
-        assert self._repl_context is not None
-        providers = self._repl_context.registry.all()
-        if not providers:
+        """Act on the currently focused row 閳?toggle index / pick builder."""
+        if self.phase == "builder_select":
+            rows = self._builder_rows()
+            if not rows:
+                return
+            key, _label, _desc = rows[self._index_focus_idx]
+            builder_key = key.split(":", 1)[1]
+            self._selected_builder = builder_key
+            self._render_builder_select()
+            self._set_status(f"  builder: {builder_key}")
             return
-        provider = providers[self._index_focus_idx]
-        if provider.index_type in self._selected_index_types:
-            self._selected_index_types.discard(provider.index_type)
-        else:
-            self._selected_index_types.add(provider.index_type)
-        self._render_index_select()
+
+        assert self._repl_context is not None
+        rows = self._index_select_rows()
+        if not rows:
+            return
+        key, _label, _desc = rows[self._index_focus_idx]
+        if key.startswith("index:"):
+            index_type = key.split(":", 1)[1]
+            if index_type in self._selected_index_types:
+                self._selected_index_types.discard(index_type)
+            else:
+                self._selected_index_types.add(index_type)
+            self._render_index_select()
 
     def _handle_index_select_input(self, text: str) -> None:
-        """Handle input in the index_select phase.
-
-        Commands accepted by the input box:
-        - Up/Down arrows and Space are intercepted by :meth:`on_key` to move
-          and toggle the focused row in the list.
-        - Empty Enter / ``:go`` / ``:ok``: start compile with the selected set.
-        - ``:back`` / ``:cancel`` / ``:select``: return to book list.
-        - ``:quit``: exit the app.
-        - Any other non-``:`` text is rejected as an unknown command.
-        """
+        """Handle input in the index_select phase."""
         self.query_one("#select_input", Input).value = ""
         low = text.lower().strip()
 
-        if low == "":
-            # Empty Enter = confirm.
+        if low == "" or low in (":go", ":ok", ":next"):
             if self._selected_index_types:
-                self.run_worker(
-                    self._start_compile(self._compile_source, index_types=self._selected_index_types),
-                    exclusive=True, group="compile",
-                )  # type: ignore[arg-type]
+                self._enter_builder_select()
             else:
                 self._set_status("  select at least one index")
             return
@@ -583,20 +714,87 @@ class BookScoutTui(App[None]):
             self._set_status("  Unknown command (commands start with `:`)")
             return
 
-        if low in (":go", ":ok"):
-            if self._selected_index_types:
-                self.run_worker(
-                    self._start_compile(self._compile_source, index_types=self._selected_index_types),
-                    exclusive=True, group="compile",
-                )  # type: ignore[arg-type]
-            else:
-                self._set_status("  select at least one index")
-            return
-
         if low in (":back", ":cancel", ":select"):
             self.phase = "select"
             self._set_status(f"  {len(self._books)} book(s)")
-            self._focus_input()
+            return
+
+        if low in (":q", ":quit", ":exit"):
+            self.exit()
+            return
+
+        self._set_status(f"  Unknown command: {text}")
+
+    # -- Builder select phase --
+    def _enter_builder_select(self) -> None:
+        """Enter the builder-select phase after indexes are chosen."""
+        assert self._repl_context is not None
+        self._selected_builder = self._repl_context.default_builder
+        self._index_focus_idx = 0
+        self._render_builder_select()
+        self.phase = "builder_select"
+        self._set_status(f"  builder: {self._selected_builder}")
+        self._focus_input()
+
+    def _builder_rows(self) -> list[tuple[str, str, str]]:
+        rows: list[tuple[str, str, str]] = [
+            ("builder:rule", "Rule", "Fast, deterministic heuristics (default)"),
+        ]
+        assert self._repl_context is not None
+        if self._repl_context.has_llm_builder:
+            rows.append(("builder:llm", "LLM", "Tool-driven outline construction; slower, higher quality"))
+        return rows
+
+    def _render_builder_select(self) -> None:
+        rows = self._builder_rows()
+        name_w = max((len(label) for _key, label, _desc in rows), default=0)
+        out = Text()
+        for idx, (key, label, desc) in enumerate(rows):
+            if idx > 0:
+                out.append(Text("\n"))
+            focused = idx == self._index_focus_idx
+            style = "bold white" if focused else "#888888"
+            desc_style = "#cccccc" if focused else "#444444"
+            builder_key = key.split(":", 1)[1]
+            checked = builder_key == self._selected_builder
+            box = "(*)" if checked else "( )"
+            out.append(Text(f"  {box}  ", style=style))
+            out.append(Text(label.ljust(name_w), style=style))
+            if desc:
+                out.append(Text("    "))
+                out.append(Text(desc, style=desc_style))
+        out.append(Text("\n\n"))
+        out.append(
+            Text(
+                "  up/down  focus    Space  pick    Enter/:go  build    :back  cancel",
+                style="#666666",
+            )
+        )
+        with contextlib.suppress(Exception):
+            self.query_one("#builder_select_list", Static).update(out)
+
+    def _handle_builder_select_input(self, text: str) -> None:
+        self.query_one("#select_input", Input).value = ""
+        low = text.lower().strip()
+
+        if low == "" or low in (":go", ":ok"):
+            self.run_worker(
+                self._start_compile(
+                    self._compile_source,
+                    index_types=self._selected_index_types,
+                    builder=self._selected_builder,
+                ),
+                exclusive=True,
+                group="compile",
+            )  # type: ignore[arg-type]
+            return
+
+        if not low.startswith(":"):
+            self._set_status("  Unknown command (commands start with `:`)")
+            return
+
+        if low in (":back", ":cancel"):
+            self._enter_index_select(self._compile_source)
             return
 
         if low in (":q", ":quit", ":exit"):
@@ -633,21 +831,25 @@ class BookScoutTui(App[None]):
             self._set_status("  chat unavailable: LLM/embedding not configured.")
             return
         self._selected_book = book
-        title = book.title or "(untitled)"
-        author = book.author or "Unknown"
-        self._chat_markdown = (
-            f"# {title}\n\n"
-            f"*by {author}*\n\n"
-            f"---\n\n"
-            f"`:quit` `:back` `:clear`\n\n"
-        )
+        self._chat_markdown = ""
         self.query_one("#chat_log", Markdown).update(self._chat_markdown)
         self.phase = "chat"
+        title = book.title or "(untitled)"
+        author = book.author or "Unknown"
+        with contextlib.suppress(Exception):
+            hint = f"{title}  by {author}"
+            self.query_one("#header_hint", Static).update(hint)
         self._set_status(f"  {book.title or '(untitled)'}")
         self._focus_input()
 
     # -- Compile phase --
-    async def _start_compile(self, source_path: str, *, index_types: set[str] | None = None) -> None:
+    async def _start_compile(
+        self,
+        source_path: str,
+        *,
+        index_types: set[str] | None = None,
+        builder: str = "rule",
+    ) -> None:
         assert self._repl_context is not None
         self._clear_error()
         self._post_compile_target = "select"
@@ -655,7 +857,11 @@ class BookScoutTui(App[None]):
         self.phase = "compile"
         self._start_spinner("compiling...")
         try:
-            task_id = await self._repl_context.compile(source_path, index_types=index_types)
+            task_id = await self._repl_context.compile(
+                source_path,
+                index_types=index_types,
+                builder=builder,
+            )
         except Exception as e:
             self._stop_spinner()
             self._show_error(f"Failed to start compile:\n{e}")
@@ -709,7 +915,7 @@ class BookScoutTui(App[None]):
             if snap.total > 0:
                 pct = (snap.completed / snap.total * 100) if snap.total > 0 else 0
                 filled = int(pct / 100 * 20)
-                bar = "█" * filled + "░" * (20 - filled)
+                bar = "\u2588" * filled + "\u2591" * (20 - filled)
                 eta_str = f" ETA {int(snap.eta_seconds)}s" if snap.eta_seconds else ""
                 status_str = ""
                 if snap.status == "done":
@@ -725,7 +931,7 @@ class BookScoutTui(App[None]):
                     Text(status_str, style="green" if snap.status == "done" else "red"),
                 )
             else:
-                # Indeterminate task — show spinner-like state.
+                # Indeterminate task 閳?show spinner-like state.
                 status_str = ""
                 if snap.status == "done":
                     status_str = " done"
@@ -746,20 +952,25 @@ class BookScoutTui(App[None]):
         if p.status == "succeeded":
             log.write(Text(""))
             log.write(Text("OK", style="bold green"))
-            if self._repl_context is not None:
-                self._books = await self._repl_context.list_books()
             self._pending_task_id = None
             target = self._post_compile_target
             if target == "chat" and self._selected_book is not None:
-                self._selected_book = next(
-                    (b for b in self._books if b.id == self._selected_book.id), None
-                )
                 self.phase = "chat"
-                self._set_status(f"  {self._selected_book.title or '(untitled)'}")
+                self._set_panel("chat")
+                self._update_header_hint("chat")
             else:
                 self.phase = "select"
+                self._set_panel("select")
+                self._update_header_hint("select")
+            if self._repl_context is not None:
+                with contextlib.suppress(Exception):
+                    self._books = await self._repl_context.list_books()
+            if target == "chat" and self._selected_book is not None:
+                self._selected_book = next((b for b in self._books if b.id == self._selected_book.id), None)
+                self._set_status(f"  {self._selected_book.title or '(untitled)'}")
+            else:
                 self._refresh_books_list()
-                self._set_status("  compile OK — pick a book")
+                self._set_status("  compile OK -- pick a book")
             self._focus_input()
             return
         log.write(Text(""))
@@ -811,6 +1022,10 @@ class BookScoutTui(App[None]):
             self.query_one("#chat_log", Markdown).update("")
             return
 
+        if text.lower() in (":bottom", ":end"):
+            self.query_one("#chat_log", Markdown).scroll_end(animate=False)
+            return
+
         low = text.lower()
         if low.startswith(":addindex ") or low.startswith(":addidx "):
             parts = text.split()
@@ -831,7 +1046,8 @@ class BookScoutTui(App[None]):
                 return
             self.run_worker(
                 self._start_add_index(self._selected_book.id, {idx_type}),
-                exclusive=True, group="compile",
+                exclusive=True,
+                group="compile",
             )  # type: ignore[arg-type]
             return
 
@@ -849,7 +1065,8 @@ class BookScoutTui(App[None]):
                 return
             self.run_worker(
                 self._do_rm_index(self._selected_book.id, idx_type),
-                exclusive=True, group="compile",
+                exclusive=True,
+                group="compile",
             )  # type: ignore[arg-type]
             return
 
@@ -864,14 +1081,15 @@ class BookScoutTui(App[None]):
         assert self._selected_book is not None
         # Append the user turn as a markdown blockquote and flush to the widget.
         escaped = user_input.replace("\n", "\n> ")
-        self._chat_markdown += f"\n> **you:** {escaped}\n\n"
-        await self.query_one("#chat_log", Markdown).update(self._chat_markdown)
+        self._chat_markdown += f"\n> {escaped}\n\n"
+        log = self.query_one("#chat_log", Markdown)
+        await log.update(self._chat_markdown)
+        log.scroll_end(animate=False)
         self._chat_busy = True
         self._set_status("  thinking...")
         self._start_spinner("thinking...")
         self._streaming_buffer = []
         self._streaming_started = False
-        self._assistant_first_line = True
         try:
             async for chunk in self._repl_context.chat(self._selected_book.id, user_input):
                 self._handle_chunk(chunk)
@@ -885,9 +1103,15 @@ class BookScoutTui(App[None]):
             self._set_status(f"  {self._selected_book.title or '(untitled)'}")
             self._focus_input()
 
-    async def _start_add_index(self, book_id: str, index_types: set[str]) -> None:
+    async def _start_add_index(
+        self,
+        book_id: str,
+        index_types: set[str],
+        *,
+        post_target: str = "chat",
+    ) -> None:
         assert self._repl_context is not None
-        self._post_compile_target = "chat"
+        self._post_compile_target = post_target
         self._set_status(f"  building: {','.join(sorted(index_types))}")
         self.phase = "compile"
         self._start_spinner("building index...")
@@ -896,7 +1120,7 @@ class BookScoutTui(App[None]):
         except Exception as e:
             self._stop_spinner()
             self._show_error(f"Failed to start index build:\n{e}")
-            self.phase = "chat"
+            self.phase = post_target
             self._focus_input()
             return
         self._pending_task_id = task_id
@@ -910,12 +1134,18 @@ class BookScoutTui(App[None]):
         self._set_status(f"  removing: {idx_type}")
         try:
             await self._repl_context.remove_index(book_id, idx_type)
-            # Refresh selected_book indexes.
             self._books = await self._repl_context.list_books()
             self._selected_book = next((b for b in self._books if b.id == book_id), None)
-            self._chat_markdown += f"\n*removed index: `{idx_type}`*\n\n"
-            await self.query_one("#chat_log", Markdown).update(self._chat_markdown)
-            self._set_status(f"  {self._selected_book.title or '(untitled)'}")
+            if self.phase == "chat":
+                self._chat_markdown += f"\n*removed index: `{idx_type}`*\n\n"
+                log = self.query_one("#chat_log", Markdown)
+                await log.update(self._chat_markdown)
+                log.scroll_end(animate=False)
+            else:
+                self._refresh_books_list()
+            self._set_status(
+                f"  removed {idx_type} from #{self._books.index(self._selected_book) + 1 if self._selected_book else '-'}"
+            )
         except Exception as e:
             self._show_error(f"Failed to remove index:\n{e}")
             self._set_status("  rmindex failed.")
@@ -923,12 +1153,11 @@ class BookScoutTui(App[None]):
             self._focus_input()
 
     def _handle_chunk(self, chunk: StreamChunk) -> None:
+        log = self.query_one("#chat_log", Markdown)
         if chunk.kind == "text":
             delta = chunk.data if isinstance(chunk.data, str) else str(chunk.data)
             if not self._streaming_started:
                 self._streaming_started = True
-                # First token of a turn: prefix the assistant section.
-                self._chat_markdown += "## assistant\n\n"
             self._streaming_buffer.append(delta)
             joined = "".join(self._streaming_buffer)
             if "\n" in joined:
@@ -940,8 +1169,8 @@ class BookScoutTui(App[None]):
             data = chunk.data if isinstance(chunk.data, dict) else {}
             name = data.get("tool_name", "?")
             self._chat_markdown += f"\n`-> {name}`\n\n"
-            self.query_one("#chat_log", Markdown).update(self._chat_markdown)
-            self._assistant_first_line = True
+            log.update(self._chat_markdown)
+            log.scroll_end(animate=False)
         elif chunk.kind == "tool_result":
             self._flush_streaming()
             data = chunk.data if isinstance(chunk.data, dict) else {}
@@ -951,18 +1180,21 @@ class BookScoutTui(App[None]):
             stats_str = ", ".join(f"{k}={v}" for k, v in stats.items())
             buf = f"`<- {name}`"
             if summary:
-                buf += f"  *{summary}*"
+                buf += f"  _{summary}_"
             if stats_str:
                 buf += f"  `[{stats_str}]`"
             self._chat_markdown += f"\n{buf}\n\n"
-            self.query_one("#chat_log", Markdown).update(self._chat_markdown)
-            self._assistant_first_line = True
+            if self._verbose_tools:
+                self._chat_markdown += self._render_verbose_tool(data)
+            log.update(self._chat_markdown)
+            log.scroll_end(animate=False)
         elif chunk.kind == "status":
             data = chunk.data if isinstance(chunk.data, dict) else {}
             phase = data.get("phase", "")
             if phase == "auto_compacted":
                 self._chat_markdown += "\n*[auto-compacted]*\n\n"
-                self.query_one("#chat_log", Markdown).update(self._chat_markdown)
+                log.update(self._chat_markdown)
+                log.scroll_end(animate=False)
 
     def _flush_streaming(self) -> None:
         if not self._streaming_started:
@@ -973,21 +1205,156 @@ class BookScoutTui(App[None]):
         if text:
             self._write_assistant_line(text)
             self._chat_markdown += "\n"
-            self.query_one("#chat_log", Markdown).update(self._chat_markdown)
+            log = self.query_one("#chat_log", Markdown)
+            log.update(self._chat_markdown)
+            log.scroll_end(animate=False)
 
     def _write_assistant_line(self, text: str) -> None:
         self._chat_markdown += f"{text}\n"
+
+    @staticmethod
+    def _render_verbose_tool(data: dict) -> str:
+        """Render full params and result for a tool call (verbose mode)."""
+
+        out = ""
+        args = data.get("arguments") or {}
+        if args:
+            try:
+                args_json = json.dumps(args, indent=2, ensure_ascii=False)
+            except (TypeError, ValueError):
+                args_json = str(args)
+            out += f"  _params:_\n\n```json\n{args_json}\n```\n\n"
+        result_text = data.get("result_text", "")
+        if result_text:
+            try:
+                parsed = json.loads(result_text)
+                result_json = json.dumps(parsed, indent=2, ensure_ascii=False)
+            except (json.JSONDecodeError, TypeError):
+                result_json = result_text
+            out += f"  _result:_\n\n```json\n{result_json}\n```\n\n"
+        return out
 
     # -- Actions --
     def action_clear_log(self) -> None:
         if self.phase == "chat":
             self._chat_markdown = ""
-            self.query_one("#chat_log", Markdown).update("")
+            log = self.query_one("#chat_log", Markdown)
+            log.update("")
+            log.scroll_end(animate=False)
         elif self.phase == "compile":
             self.query_one("#compile_log", RichLog).clear()
 
+    def action_toggle_verbose_tools(self) -> None:
+        self._verbose_tools = not self._verbose_tools
+        self._set_status(f"  verbose tool calls: {'ON' if self._verbose_tools else 'OFF'}")
+
     async def action_quit(self) -> None:
         self.exit()
+
+    # -- Command palette --
+    _COMMANDS: list[tuple[str, str, tuple[str, ...]]] = [
+        ("back", "Return to the book list", ("chat", "index_select", "builder_select")),
+        ("book", "Open book N in chat: :book N", ("select",)),
+        ("bottom", "Scroll to the bottom of the chat", ("chat",)),
+        ("clear", "Clear the chat log", ("chat",)),
+        ("quit", "Exit BookScout", ("select", "chat", "compile", "index_select", "builder_select")),
+        ("compile", "Compile a new book from a source file", ("select",)),
+        ("delete", "Delete book N: :delete N", ("select",)),
+        ("addindex", "Build an index for book N: :addindex N <type>", ("select", "chat")),
+        ("rmindex", "Remove an index from book N: :rmindex N <type>", ("select", "chat")),
+        ("go", "Confirm and proceed", ("index_select", "builder_select")),
+        ("cancel", "Cancel and go back", ("index_select", "builder_select")),
+    ]
+
+    def _palette_commands(self) -> list[tuple[str, str]]:
+        return [(cmd, desc) for cmd, desc, phases in self._COMMANDS if self.phase in phases]
+
+    def _active_input(self) -> Input:
+        return self.query_one(
+            "#chat_input" if self.phase in ("chat", "compile") else "#select_input",
+            Input,
+        )
+
+    def _open_palette(self) -> None:
+        if self._palette_open:
+            self._render_palette()
+            return
+        self._palette_open = True
+        self._render_palette()
+
+    def _close_palette(self) -> None:
+        self._palette_open = False
+        self._skip_palette = False
+        with contextlib.suppress(Exception):
+            self.query_one("#command_palette", Container).display = False
+
+    def _palette_move(self, delta: int) -> None:
+        try:
+            lv = self.query_one("#palette_list", ListView)
+            idx = lv.index
+            if idx is not None and idx < len(lv.children):
+                lv.index = max(0, min(len(lv.children) - 1, idx + delta))
+        except Exception:
+            pass
+
+    def _accept_palette(self) -> None:
+        cmd = ""
+        try:
+            lv = self.query_one("#palette_list", ListView)
+            idx = lv.index
+            if idx is not None and idx < len(lv.children):
+                item = lv.children[idx]
+                for w in item.query(Static):
+                    if isinstance(w.renderable, Text):
+                        cmd = w.renderable.plain.split()[0].lstrip(":")
+                        break
+        except Exception:
+            pass
+
+        if not cmd:
+            # Palette had no match — submit whatever is in the input (e.g. ":book").
+            try:
+                cmd = self._active_input().value.lstrip(":")
+            except Exception:
+                self._close_palette()
+                return
+
+        self._close_palette()
+        self._skip_palette = True
+
+        if self.phase == "chat":
+            self._handle_chat_input(f":{cmd}")
+        elif self.phase == "index_select":
+            self._handle_index_select_input(f":{cmd}")
+        elif self.phase == "builder_select":
+            self._handle_builder_select_input(f":{cmd}")
+        else:
+            self._handle_select_input(f":{cmd}")
+
+    def _render_palette(self) -> None:
+        try:
+            inp = self._active_input()
+            query = inp.value.lstrip(":").lower()
+        except Exception:
+            return
+        all_cmds = self._palette_commands()
+        filtered = [(cmd, desc) for cmd, desc in all_cmds if not query or query in cmd.lower()]
+        if not filtered:
+            self._close_palette()
+            return
+        palette = self.query_one("#command_palette", Container)
+        lv = self.query_one("#palette_list", ListView)
+        lv.clear()
+        for cmd, desc in filtered:
+            label = Text.assemble(
+                Text(f":{cmd}  ", style="bold #ffffff"),
+                Text(desc, style="#888888"),
+            )
+            lv.append(ListItem(Static(label)))
+        if filtered:
+            lv.index = 0
+        palette.display = True
+        palette.styles.height = min(len(filtered) + 1, 14)
 
 
 __all__ = ["BookScoutTui"]

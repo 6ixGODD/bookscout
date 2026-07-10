@@ -2,10 +2,20 @@
 
 from __future__ import annotations
 
+import typing as t
+
 from bookscout.doccompiler.index_provider import IndexProvider
 
+if t.TYPE_CHECKING:
+    import pathlib
 
-def _indexer_factory(logger, books_store, **kw):
+    from bookscout.books import BooksStore
+    from bookscout.index.graph import GraphIndexer
+    from bookscout.index.graph import GraphStore
+    from bookscout.logging import Logger
+
+
+def _indexer_factory(logger: Logger, books_store: BooksStore, **kw: t.Any):
     from bookscout.llm import ChatModel
 
     from .__init__ import GraphIndexer
@@ -20,13 +30,15 @@ def _indexer_factory(logger, books_store, **kw):
     )
 
 
-def _store_factory(db_path, logger, **kw):  # noqa: ARG001
+# pylint: disable-next=unused-argument
+def _store_factory(db_path: pathlib.Path, logger: Logger, **kw: t.Any):  # noqa: ARG001
     from .__init__ import GraphStore
 
     return GraphStore(logger=logger, db_path=db_path)
 
 
-def _tool_factory(indexer, store, **kw):  # noqa: ARG001
+# pylint: disable-next=unused-argument
+def _tool_factory(indexer: GraphIndexer, store: GraphStore, **kw: t.Any):  # noqa: ARG001
     from .tools import create_graph_tools
 
     return create_graph_tools(indexer, store)

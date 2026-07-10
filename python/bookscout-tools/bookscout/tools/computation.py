@@ -62,7 +62,7 @@ class WolframExecuteTool(
         try:
             result = self._evaluate(expression)
             return f"Result: {result}"
-        except Exception as e:
+        except Exception as e:  # pylint: disable=broad-exception-caught
             return f"Error evaluating expression: {e}\nFor complex computations, try the python_execute tool instead."
 
     def _evaluate(self, expr: str) -> str:
@@ -128,7 +128,7 @@ class WolframExecuteTool(
                 import ast
 
                 tree = ast.parse(translated, mode="eval")
-                result = eval(compile(tree, "<wolfram>", "eval"), {"__builtins__": {}}, {})
+                result = eval(compile(tree, "<wolfram>", "eval"), {"__builtins__": {}}, {})  # pylint: disable=eval-used
                 return str(result)
             except Exception as e:
                 raise RuntimeError(f"Cannot evaluate '{expr}': {e}. Install sympy for full Wolfram support.") from e
@@ -219,8 +219,8 @@ class PythonExecuteTool(
         def _run() -> None:
             try:
                 with contextlib.redirect_stdout(stdout_buf), contextlib.redirect_stderr(stderr_buf):
-                    exec(code, safe_globals)
-            except Exception as e:
+                    exec(code, safe_globals)  # pylint: disable=exec-used
+            except Exception as e:  # pylint: disable=broad-exception-caught
                 result_holder["error"] = str(e)
 
         thread = threading.Thread(target=_run, daemon=True)

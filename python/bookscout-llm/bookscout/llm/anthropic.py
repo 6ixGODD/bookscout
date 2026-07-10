@@ -360,8 +360,8 @@ class AnthropicChatModel(
 
         return result
 
+    @staticmethod
     def _build_request_kwargs(
-        self,
         messages: list[dict[str, t.Any]],
         tools: list[AnthropicToolDef] | None,
         options: CompletionOptions,

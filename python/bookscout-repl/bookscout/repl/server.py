@@ -19,9 +19,6 @@ from .context import ReplContext
 from .transport import StdioTransport
 from .transport import Transport
 
-if t.TYPE_CHECKING:
-    pass
-
 
 class ReplServer(LoggingMixin):
     """The stdio REPL server — a thin transport layer over ReplContext.
@@ -57,7 +54,7 @@ class ReplServer(LoggingMixin):
         while True:
             try:
                 request = await self._transport.receive()
-            except Exception as e:
+            except Exception as e:  # pylint: disable=broad-exception-caught
                 self.logger.error("transport receive failed", error=str(e))
                 break
 
@@ -71,7 +68,6 @@ class ReplServer(LoggingMixin):
 
         self.logger.info("REPL server loop ended")
 
-    # ── Request dispatch ──────────────────────────────────────
     async def _handle_request(self, request: dict[str, t.Any]) -> None:
         assert self._transport is not None
 
@@ -94,7 +90,7 @@ class ReplServer(LoggingMixin):
                 asyncio.get_event_loop().stop()
             else:
                 await self._send_error(req_id, f"Unknown request type: {req_type}")
-        except Exception as e:
+        except Exception as e:  # pylint: disable=broad-exception-caught
             await self._send_error(req_id, str(e))
 
     async def _send(self, payload: dict[str, t.Any]) -> None:
@@ -174,7 +170,7 @@ class ReplServer(LoggingMixin):
                     "request_id": req_id,
                     "kind": chunk.kind,
                     "data": chunk.data
-                    if isinstance(chunk.data, (str, dict, list, int, float, type(None)))
+                    if isinstance(chunk.data, str | dict | list | int | float | type(None))
                     else str(chunk.data),
                 })
         except RuntimeError as e:

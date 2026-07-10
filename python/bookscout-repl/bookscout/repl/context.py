@@ -30,11 +30,17 @@ if t.TYPE_CHECKING:
     from bookscout.agents.reading.mode import ReadingMode
     from bookscout.books import Book
     from bookscout.books import BooksStore
+    from bookscout.doccompiler import Builder
+    from bookscout.doccompiler import EpubParser
+    from bookscout.doccompiler import Indexer
+    from bookscout.doccompiler import PdfParser
+    from bookscout.doccompiler.index_registry import IndexRegistry
     from bookscout.doccompiler.task_manager import TaskManager
     from bookscout.doccompiler.task_manager import TaskProgress
     from bookscout.embedding import EmbeddingSystem
     from bookscout.llm import ChatModel
     from bookscout.logging import Logger
+    from bookscout.progress import Monitor
     from bookscout.vectorstore.lancedb import LanceDBStore
 
 
@@ -72,12 +78,15 @@ class ReplContext(LoggingMixin, AsyncResourceMixin):
         self._embedding: EmbeddingSystem | None = None
         self._vector_store: LanceDBStore | None = None
         self._task_manager: TaskManager | None = None
-        self._epub_parser: t.Any = None
-        self._pdf_parser: t.Any = None
-        self._builder: t.Any = None
+        self._epub_parser: EpubParser | None = None
+        self._pdf_parser: PdfParser | None = None
+        self._builder: Builder | None = None
+        self._llm_builder: Builder | None = None
         self._modes: dict[str, ReadingMode] = {}
+        self._indexers: list[Indexer] = []
+        self._registry: IndexRegistry | None = None
+        self._monitor: Monitor | None = None
 
-    # ── Lifecycle ──────────────────────────────────────────────
     async def startup(self) -> None:
         """Initialize all resources from config.
 
@@ -138,9 +147,7 @@ class ReplContext(LoggingMixin, AsyncResourceMixin):
         if self._embedding is not None:
             lancedb_dir = self._data_dir / "lancedb"
             lancedb_dir.mkdir(parents=True, exist_ok=True)
-            self._vector_store = LanceDBStore(
-                LanceDBConfig(uri=str(lancedb_dir), table_name="bookscout_vectors")
-            )
+            self._vector_store = LanceDBStore(LanceDBConfig(uri=str(lancedb_dir), table_name="bookscout_vectors"))
             await self._vector_store.init()
 
         # Monitor for fine-grained progress.
@@ -156,11 +163,17 @@ class ReplContext(LoggingMixin, AsyncResourceMixin):
         self._builder = RuleBasedBuilder(logger=self.logger)
         await self._builder.startup()
 
+        # Optional LLM tool-driven builder (only when chat is available).
+        if self._llm is not None:
+            from bookscout.doccompiler import LlmToolBuilder
+
+            self._llm_builder = LlmToolBuilder(logger=self.logger, model=self._llm)
+            await self._llm_builder.startup()
+
         # Indexers — built from registry; only providers whose requirements are met.
         from bookscout.doccompiler.index_registry import IndexRegistry
 
         self._registry = IndexRegistry.load()
-        self._indexers: list[t.Any] = []
         if self._llm is not None and self._embedding is not None and self._vector_store is not None:
             for provider in self._registry.all():
                 if provider.requires_vector_store and self._vector_store is None:
@@ -207,6 +220,9 @@ class ReplContext(LoggingMixin, AsyncResourceMixin):
                 await indexer.shutdown()
         if self._builder is not None:
             await self._builder.shutdown()
+        if self._llm_builder is not None:
+            with contextlib.suppress(Exception):
+                await self._llm_builder.shutdown()
         if self._pdf_parser is not None:
             await self._pdf_parser.shutdown()
         if self._epub_parser is not None:
@@ -236,7 +252,10 @@ class ReplContext(LoggingMixin, AsyncResourceMixin):
                 db_path = ws.index_db_path(provider.db_path_name)
                 if db_path.exists() and db_path.stat().st_size > 0:
                     await self._books_store.upsert_index(
-                        book_id, provider.index_type, "built", count=0,
+                        book_id,
+                        provider.index_type,
+                        "built",
+                        count=0,
                     )
                     self.logger.info("manifest bootstrapped", book_id=book_id, index_type=provider.index_type)
 
@@ -285,21 +304,58 @@ class ReplContext(LoggingMixin, AsyncResourceMixin):
         """The IndexRegistry."""
         return self._registry
 
+    @property
+    def has_llm_builder(self) -> bool:
+        """Whether the LLM tool-driven builder is available."""
+        return self._llm_builder is not None
+
+    @property
+    def default_builder(self) -> str:
+        """Return the default builder key for new compiles (``"rule"``)."""
+        return "rule"
+
+    def select_builder(self, key: str) -> Builder:
+        """Pick one of the available builders by ``key``.
+
+        Supported values: ``"rule"`` (always available), ``"llm"``
+        (requires LLM configured). Falls back to ``"rule"`` when the
+        LLM builder is unavailable so a caller-supplied ``"llm"`` stays
+        robust in a no-key dev environment.
+        """
+        if key == "llm" and self._llm_builder is not None:
+            return self._llm_builder  # type: ignore[return-value]
+        return self._builder  # type: ignore[return-value]
+
     # ── Operations ────────────────────────────────────────────
     async def list_books(self) -> list[Book]:
         """List all books in the store."""
         return list(await self.books_store.list_books())
 
-    async def compile(self, source_path: str, *, index_types: set[str] | None = None) -> str:
+    async def compile(
+        self,
+        source_path: str,
+        *,
+        index_types: set[str] | None = None,
+        builder: str = "rule",
+    ) -> str:
         """Start a compile task. Returns the task id.
 
         The parser is selected from the source extension (``.pdf`` ->
         MinerU, otherwise EPUB).
+
+        Args:
+            source_path: Path to the source file.
+            index_types: Optional set of index types to build. See
+                :meth:`task_manager.start_compile`.
+            builder: Which ontology builder to use (``"rule"`` or ``"llm"``).
+                ``"llm"`` falls back to ``"rule"`` when the LLM builder is
+                unavailable (no API key).
         """
         ext = pathlib.Path(source_path).suffix.lower()
         parser = self._pdf_parser if ext == ".pdf" else self._epub_parser
         # TaskManager holds a parser slot; swap it for this run.
         self.task_manager._parser = parser  # type: ignore[attr-defined]
+        self.task_manager._builder = self.select_builder(builder)  # type: ignore[attr-defined]
         return str(await self.task_manager.start_compile(source_path, index_types=index_types))
 
     async def build_indexes(
@@ -431,13 +487,9 @@ def _build_logger(config: BookScoutConfig, *, name: str) -> Logger:
     if not targets_cfg:
         targets_cfg.append(TargetConfig(dest="stderr", level=level_str, pretty=True))
         log_file = config.resolve_log_file_path()
-        targets_cfg.append(
-            TargetConfig(dest=log_file, level=config.logging.file_level.upper(), pretty=True)
-        )
+        targets_cfg.append(TargetConfig(dest=log_file, level=config.logging.file_level.upper(), pretty=True))
 
-    return build_logger(
-        LoggingConfig(name=name, level=level_str, targets=targets_cfg)
-    )
+    return build_logger(LoggingConfig(name=name, level=level_str, targets=targets_cfg))
 
 
 __all__ = ["ReplContext"]

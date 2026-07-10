@@ -66,6 +66,9 @@ def _registry() -> IndexRegistry:
 class _FakeReplContext:
     """Bare-bones context that satisfies BookScoutTui's needs in tests."""
 
+    default_builder = "rule"
+    has_llm_builder = False
+
     def __init__(self, books: list[Book]) -> None:
         self._books = books
         self._registry = _registry()
@@ -255,7 +258,7 @@ async def test_index_select_arrow_keys_move_focus() -> None:
             await pilot.press("down")
             await pilot.pause()
             assert app._index_focus_idx == 2
-            # Wrap-around.
+            # Wrap-around (3 rows: chunk, summary, graph).
             await pilot.press("down")
             await pilot.pause()
             assert app._index_focus_idx == 0

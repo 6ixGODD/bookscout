@@ -49,11 +49,7 @@ if t.TYPE_CHECKING:
     from bookscout.logging import Logger
 
 
-# ═══════════════════════════════════════════════════════════════════
 # OpenAI-specific SQLite tables
-# ═══════════════════════════════════════════════════════════════════
-
-
 class OpenAIConversationCacheRow(_SQLModel, table=True):
     """Maps our conversation_id to OpenAI-specific cache tracking data."""
 
@@ -304,8 +300,8 @@ class OpenAIChatModel(
         """
         return messages
 
+    @staticmethod
     def _build_request_kwargs(
-        self,
         messages: list[dict[str, t.Any]],
         tools: list[SchemaDict] | None,
         options: CompletionOptions,

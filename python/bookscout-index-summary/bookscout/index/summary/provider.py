@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+import typing as t
+
 from bookscout.doccompiler.index_provider import IndexProvider
 
 
-def _indexer_factory(logger, books_store, **kw):
+def _indexer_factory(logger, books_store, **kw: t.Any):
     from .__init__ import SummaryIndexer
 
     return SummaryIndexer(
@@ -15,13 +17,15 @@ def _indexer_factory(logger, books_store, **kw):
     )
 
 
-def _store_factory(db_path, logger, **kw):  # noqa: ARG001
+# pylint: disable-next=unused-argument
+def _store_factory(db_path, logger, **kw: t.Any):  # noqa: ARG001
     from .__init__ import SummaryStore
 
     return SummaryStore(logger=logger, db_path=db_path)
 
 
-def _tool_factory(indexer, store, **kw):  # noqa: ARG001
+# pylint: disable-next=unused-argument
+def _tool_factory(indexer, store, **kw: t.Any):  # noqa: ARG001
     # create_summary_tools takes (logger, db_path) and internally builds its own
     # SummaryStore per tool; the toolset's _startup_hidden_summary_stores starts them.
     from .tools import create_summary_tools
