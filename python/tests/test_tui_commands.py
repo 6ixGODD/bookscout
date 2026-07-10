@@ -206,7 +206,9 @@ async def test_select_book_no_arg() -> None:
     app = BookScoutTui(BookScoutConfig())
     async with drive(app) as pilot:
         _select_input(app).value = ":book"
-        await pilot.press("enter")
+        await pilot.press("enter")  # palette selects "book" → pastes ":book "
+        await pilot.pause()
+        await pilot.press("enter")  # execute
         await pilot.pause()
         assert "usage" in _status(app).lower()
 
@@ -215,7 +217,9 @@ async def test_select_compile_no_arg() -> None:
     app = BookScoutTui(BookScoutConfig())
     async with drive(app) as pilot:
         _select_input(app).value = ":compile"
-        await pilot.press("enter")
+        await pilot.press("enter")  # palette selects → pastes ":compile "
+        await pilot.pause()
+        await pilot.press("enter")  # execute
         await pilot.pause()
         assert "usage" in _status(app).lower()
         assert app.phase == "select"
@@ -309,7 +313,9 @@ async def test_index_select_back_returns_to_select() -> None:
             await pilot.press("enter")
             await pilot.pause()
             _select_input(app).value = ":back"
-            await pilot.press("enter")
+            await pilot.press("enter")  # palette selects "back" → pastes ":back "
+            await pilot.pause()
+            await pilot.press("enter")  # execute
             await pilot.pause()
             assert app.phase == "select"
     finally:

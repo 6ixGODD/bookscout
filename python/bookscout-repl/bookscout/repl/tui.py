@@ -1299,16 +1299,10 @@ class BookScoutTui(App[None]):
             return
 
         self._close_palette()
-        self._skip_palette = True
-
-        if self.phase == "chat":
-            self._handle_chat_input(f":{cmd}")
-        elif self.phase == "index_select":
-            self._handle_index_select_input(f":{cmd}")
-        elif self.phase == "builder_select":
-            self._handle_builder_select_input(f":{cmd}")
-        else:
-            self._handle_select_input(f":{cmd}")
+        inp = self._active_input()
+        inp.value = f":{cmd} "
+        inp.focus()
+        self._skip_palette = False
 
     def _render_palette(self) -> None:
         try:
