@@ -187,7 +187,7 @@ class BookScoutConfig(BaseSettings):
 
     @property
     def resolved_workdir(self) -> pathlib.Path:
-        return pathlib.Path(self.workdir).resolve()
+        return pathlib.Path(self.workdir).expanduser().resolve()
 
     @classmethod
     def from_yaml(cls, file: str | os.PathLike[str]) -> BookScoutConfig:

@@ -65,8 +65,8 @@ class ReplContext(LoggingMixin, AsyncResourceMixin):
         logger: Logger | None = None,
     ) -> None:
         self._config = config
-        self._workdir = pathlib.Path(config.workdir).resolve()
-        self._data_dir = config.resolved_data_dir.resolve()
+        self._workdir = config.resolved_workdir
+        self._data_dir = config.resolved_data_dir
         self._data_dir.mkdir(parents=True, exist_ok=True)
         self._workdir.mkdir(parents=True, exist_ok=True)
         (self._workdir / "skills").mkdir(parents=True, exist_ok=True)
