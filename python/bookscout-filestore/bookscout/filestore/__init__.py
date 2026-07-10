@@ -1,3 +1,16 @@
+# Copyright 2026 BoChen SHEN
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 """File-based content-addressed blob store backed by a SQLite index.
 
 Physical blobs are stored by sha256 (content-addressed) under
@@ -679,7 +692,7 @@ class FileStore(LoggingMixin, AsyncResourceMixin):
             )
             return [row[0] for row in result.all()]
         except Exception:  # pylint: disable=broad-exception-caught
-            # Invalid FTS5 expression or query error — fall back to substring
+            # Invalid FTS5 expression or query error 鈥?fall back to substring
             # match. Caught before the ``handle_errors`` decorator wraps it.
             async with self._sqlite.session() as session:
                 like_result = await session.execute(select(FileIndex.key).where(col(FileIndex.key).like(f"%{query}%")))  # pylint: disable=no-member

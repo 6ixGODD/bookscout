@@ -1,9 +1,22 @@
-"""BookScout MCP Server — exposes tools via 3 FastMCP servers on separate paths.
+# Copyright 2026 BoChen SHEN
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+"""BookScout MCP Server 鈥?exposes tools via 3 FastMCP servers on separate paths.
 
 Architecture:
-    - /ontology  → bookscout-ontology  server (9 ontology retrieval tools)
-    - /retrieval → bookscout-retrieval server (10 derived index retrieval tools)
-    - /compiler  → bookscout-compiler  server (4 compile/index/progress tools)
+    - /ontology  鈫?bookscout-ontology  server (9 ontology retrieval tools)
+    - /retrieval 鈫?bookscout-retrieval server (10 derived index retrieval tools)
+    - /compiler  鈫?bookscout-compiler  server (4 compile/index/progress tools)
 
 All servers share a single :class:`SharedContext` for resources.
 Transport: streamable-http via Starlette + uvicorn.
@@ -164,7 +177,7 @@ class McpServerManager(LoggingMixin, AsyncResourceMixin):
             try:
                 loop = asyncio.get_running_loop()
                 if loop.is_running():
-                    # We're in an async context — schedule startup.
+                    # We're in an async context 鈥?schedule startup.
                     # But we can't await here. Let's restructure.
                     pass
             except RuntimeError:
@@ -182,7 +195,7 @@ class McpServerManager(LoggingMixin, AsyncResourceMixin):
                 logger=self.logger,
                 db_path=summary_db,
             )
-            # But wait — create_summary_tools creates its own store.
+            # But wait 鈥?create_summary_tools creates its own store.
             # We need to use the same store. Let me fix this.
             # Actually the function creates a new store, so we use that.
             # We need to start it. Since we're in sync context here (building),

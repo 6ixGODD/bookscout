@@ -1,3 +1,16 @@
+# Copyright 2026 BoChen SHEN
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 from __future__ import annotations
 
 import inspect
@@ -60,7 +73,7 @@ class SchemaDict(t.TypedDict):
 class Property(FieldInfo):  # type: ignore
     """Tool parameter annotation, built on Pydantic :class:`FieldInfo`.
 
-    Supports all Pydantic ``Field`` parameters — ``description``, ``examples``,
+    Supports all Pydantic ``Field`` parameters 鈥?``description``, ``examples``,
     ``default``, ``gt``, ``ge``, ``lt``, ``le``, ``min_length``, ``max_length``,
     ``pattern``, and more.
 
@@ -99,7 +112,7 @@ _CAMEL_RE = re.compile(r"([a-z\d])([A-Z])")
 
 
 def _pascal_to_snake(name: str) -> str:
-    """``GetWeather`` → ``get_weather``"""
+    """``GetWeather`` 鈫?``get_weather``"""
     s = _PASCAL_RE.sub(r"\1_\2", name)
     s = _CAMEL_RE.sub(r"\1_\2", s)
     return s.lower()
@@ -166,7 +179,7 @@ def _build_schema_dict(tool: BaseTool) -> SchemaDict:
         if isinstance(prop, dict):
             prop.pop("title", None)
             # Pydantic renders Optional[T] as anyOf: [{type: T}, {type: null}]
-            # → keep as-is, LLM APIs accept it.
+            # 鈫?keep as-is, LLM APIs accept it.
 
     return SchemaDict(
         type="function",
@@ -200,7 +213,7 @@ def _make_params_model(tool_cls: type[BaseTool]) -> type[BaseModel]:
         fields[param_name] = (base_type, field_info)
 
     if not fields:
-        # Empty params → simple object model
+        # Empty params 鈫?simple object model
         return create_model("Params", __base__=BaseModel)
 
     return create_model("Params", __base__=BaseModel, **fields)  # type: ignore[call-overload, no-any-return]
@@ -233,7 +246,7 @@ def _merge_default(field_info: FieldInfo, default: t.Any) -> FieldInfo:
         examples=field_info.examples,
         json_schema_extra=field_info.json_schema_extra,
     )
-    # Replay constraint metadata from the original (Gt, Le, MinLen, …)
+    # Replay constraint metadata from the original (Gt, Le, MinLen, 鈥?
     for item in field_info.metadata:
         new_fi.metadata.append(item)
     return new_fi

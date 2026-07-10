@@ -1,3 +1,16 @@
+# Copyright 2026 BoChen SHEN
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 """Structured async-safe logger for agentseed.
 
 Public surface::
@@ -103,7 +116,7 @@ class Logger(SyncResourceMixin):
         # Auto-extract fields from agentseed.core.Context:
         logger = Logger("svc", targets=[...], context_keys=["request_id"])
         async with Context({"request_id": "abc"}):
-            logger.info("handled")  # → {"request_id": "abc", ...}
+            logger.info("handled")  # 鈫?{"request_id": "abc", ...}
     """
 
     __slots__ = ("_bound", "_context_keys", "_level", "_name", "_writer")
@@ -135,7 +148,7 @@ class Logger(SyncResourceMixin):
         new._context_keys = frozenset(set(self._context_keys) | set(keys))
         return new
 
-    # ── Context ───────────────────────────────────────────────────────────
+    # 鈹€鈹€ Context 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
     def with_context(self, /, **kwargs: t.Any) -> Logger:
         """Return a new Logger with additional bound fields.
 
@@ -150,7 +163,7 @@ class Logger(SyncResourceMixin):
         new._writer = self._writer  # shared
         return new
 
-    # ── Hot path ──────────────────────────────────────────────────────────
+    # 鈹€鈹€ Hot path 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
     def _build_fields(self, extra: dict[str, t.Any]) -> dict[str, t.Any]:
         fields = dict(self._bound) if self._bound else {}
         if self._context_keys:
@@ -183,7 +196,7 @@ class Logger(SyncResourceMixin):
             )
         )
 
-    # ── Log methods ───────────────────────────────────────────────────────
+    # 鈹€鈹€ Log methods 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
     def debug(self, msg: str, /, **fields: t.Any) -> None:
         if self._level <= 10:
             self._emit(10, msg, fields)
@@ -221,7 +234,7 @@ class Logger(SyncResourceMixin):
         Example::
 
             with logger.catch("failed to connect", reraise=False):
-                connect()  # exception → logged at ERROR, then swallowed
+                connect()  # exception 鈫?logged at ERROR, then swallowed
         """
         try:
             yield
@@ -230,7 +243,7 @@ class Logger(SyncResourceMixin):
             if reraise:
                 raise
 
-    # ── Lifecycle ─────────────────────────────────────────────────────────
+    # 鈹€鈹€ Lifecycle 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
     def flush(self, timeout: float = 5.0) -> None:
         """Block until all currently-queued records have been written."""
         self._writer.flush(timeout=timeout)
@@ -247,7 +260,7 @@ class Logger(SyncResourceMixin):
         return f"Logger(name={self._name!r}, level={self._level})"
 
 
-# ── Factory ────────────────────────────────────────────────────────────────
+# 鈹€鈹€ Factory 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
 def build_logger(config: LoggingConfig) -> Logger:
     """Build a :class:`Logger` from a :class:`~agentseed.infra.logging.config.LoggingConfig`."""
     import logging as _stdlib_logging

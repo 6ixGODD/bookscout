@@ -38,3 +38,8 @@ demos/
 
 # OpenCode
 opencode.local.*json
+
+# Runtime artifacts
+llm.db
+llm_blobs/
+bookscout.bat

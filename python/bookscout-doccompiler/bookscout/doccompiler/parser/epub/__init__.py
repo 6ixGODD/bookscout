@@ -1,4 +1,17 @@
-"""EPUB parser — local implementation using EbookLib + lxml (spec §5.4).
+# Copyright 2026 BoChen SHEN
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+"""EPUB parser 鈥?local implementation using EbookLib + lxml (spec 搂5.4).
 
 Reads an EPUB file, extracts metadata, follows the spine in order, converts
 each XHTML document to Markdown, and records element-level source mappings
@@ -76,7 +89,7 @@ _PASS_THROUGH_TAGS: frozenset[str] = frozenset({
 
 @dataclasses.dataclass(slots=True)
 class _ElementMapping:
-    """Intermediate mapping collected during XHTML→markdown conversion."""
+    """Intermediate mapping collected during XHTML鈫抦arkdown conversion."""
 
     offset: int
     length: int
@@ -89,7 +102,7 @@ class _ElementMapping:
 class EpubParser(DocParser):
     """EPUB parser using EbookLib for structure and lxml for XHTML.
 
-    Converts EPUB → ``CONTENT.md`` with per-element source mappings.
+    Converts EPUB 鈫?``CONTENT.md`` with per-element source mappings.
     """
 
     async def parse(
@@ -373,7 +386,7 @@ class _MarkdownConverter:
         elif tag in ("br",):
             self._append_text("\n")
         elif tag in ("strong", "b", "em", "i", "a", "span", "code", "sub", "sup", "small", "mark", "abbr"):
-            # Inline element at block level — treat as text.
+            # Inline element at block level 鈥?treat as text.
             text = self._extract_inline(elem)
             if text.strip():
                 self._append_text(f"{text}\n\n")
@@ -508,7 +521,7 @@ class _MarkdownConverter:
 
     @staticmethod
     def _strip_ns(tag: t.Any) -> str:
-        """Strip XML namespace from a tag: ``{ns}tag`` → ``tag``."""
+        """Strip XML namespace from a tag: ``{ns}tag`` 鈫?``tag``."""
         if not isinstance(tag, str):
             return str(tag)
         if "}" in tag:

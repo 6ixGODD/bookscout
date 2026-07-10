@@ -1,5 +1,18 @@
+# Copyright 2026 BoChen SHEN
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 # pylint: disable=too-many-lines
-"""`bookscout.llm` package — provider-agnostic LLM backend.
+"""`bookscout.llm` package 鈥?provider-agnostic LLM backend.
 
 Defines :class:`ChatModel`, the abstract base class for all LLM
 implementations.  Concrete backends live in :mod:`bookscout.llm.openai` and
@@ -114,7 +127,7 @@ class ChatModel(
       executes tools internally, and manages context budget.
 
     When ``tools`` is provided but ``tool_executor`` is ``None``, a
-    :class:`ToolExecutor` is auto-instantiated from the tool list — the
+    :class:`ToolExecutor` is auto-instantiated from the tool list 鈥?the
     caller doesn't need to construct one manually.
 
     Subclasses must implement the ``_complete``, ``_complete_stream``,
@@ -274,7 +287,7 @@ class ChatModel(
 
         Subclasses are responsible for resolving file references
         (``ImageContent``, ``FileContent``) on demand via
-        ``self.llm_file_store`` and ``self.filestore`` — do **not**
+        ``self.llm_file_store`` and ``self.filestore`` 鈥?do **not**
         pre-load all files into memory.
 
         Args:
@@ -334,7 +347,7 @@ class ChatModel(
             The completion response (after tool calls resolve, if any).
         """
         # Auto-instantiate ToolExecutor when tools are provided but no
-        # executor was passed — the caller shouldn't have to construct one
+        # executor was passed 鈥?the caller shouldn't have to construct one
         # manually when they've already given us the tool list.
         if tools and tool_executor is None:
             tool_executor = ToolExecutor(tools)
@@ -345,7 +358,7 @@ class ChatModel(
         # Check context budget
         self._check_context_budget(messages)
 
-        # Convert tools once — tools don't change across iterations
+        # Convert tools once 鈥?tools don't change across iterations
         provider_tools = self._convert_tools(tools) if tools else None
 
         self.logger.info(
@@ -356,7 +369,7 @@ class ChatModel(
             stream=False,
         )
 
-        # Tool-call loop (stateless — no persistence)
+        # Tool-call loop (stateless 鈥?no persistence)
         max_iterations = self.config.toolcall.max_iterations
         current_messages = list(messages)
         response: CompletionResponse = CompletionResponse(
@@ -419,7 +432,7 @@ class ChatModel(
                 )
                 current_messages.append(result_msg)
 
-        # Max iterations reached — return last response
+        # Max iterations reached 鈥?return last response
         self.logger.warning(
             "Tool-call loop reached max iterations",
             max_iterations=max_iterations,
@@ -466,7 +479,7 @@ class ChatModel(
         # Check context budget
         self._check_context_budget(messages)
 
-        # Convert tools once — tools don't change across iterations
+        # Convert tools once 鈥?tools don't change across iterations
         provider_tools = self._convert_tools(tools) if tools else None
 
         self.logger.info(
@@ -568,7 +581,7 @@ class ChatModel(
                         )
                         current_messages.append(result_msg)
                 else:
-                    # No tool calls — yield final response and finish
+                    # No tool calls 鈥?yield final response and finish
                     yield ResponseCompleteEvent(
                         type="response_complete",
                         response=CompletionResponse(
@@ -641,7 +654,7 @@ class ChatModel(
         opts = options or CompletionOptions()
         model = opts.model or self._get_default_model()
 
-        # Convert tools once — tools don't change across iterations
+        # Convert tools once 鈥?tools don't change across iterations
         provider_tools = self._convert_tools(tools) if tools else None
 
         # Create or load conversation
@@ -729,7 +742,7 @@ class ChatModel(
                 await self.conversation_store.add_message(conversation_id, tr_msg)
                 all_messages.append(tr_msg)
 
-        # Max iterations reached — return last response
+        # Max iterations reached 鈥?return last response
         self.logger.warning(
             "Tool-call loop reached max iterations",
             conversation_id=conversation_id,
@@ -781,7 +794,7 @@ class ChatModel(
         opts = options or CompletionOptions()
         model = opts.model or self._get_default_model()
 
-        # Convert tools once — tools don't change across iterations
+        # Convert tools once 鈥?tools don't change across iterations
         provider_tools = self._convert_tools(tools) if tools else None
 
         # Create or load conversation
@@ -821,7 +834,7 @@ class ChatModel(
                 # Reset per-iteration accumulators
                 accumulated_text = ""
                 accumulated_tool_calls: dict[str, dict[str, str]] = {}
-                # Track the most recent tool-call id — argument deltas often
+                # Track the most recent tool-call id 鈥?argument deltas often
                 # arrive without a call_id, so we attribute them to the last
                 # seen call_id.
                 current_call_id = ""
@@ -899,7 +912,7 @@ class ChatModel(
                         await conv_store.add_message(conversation_id, result_msg)
                         current_messages.append(result_msg)
                 else:
-                    # No tool calls — yield final response and finish
+                    # No tool calls 鈥?yield final response and finish
                     yield ResponseCompleteEvent(
                         type="response_complete",
                         response=CompletionResponse(
@@ -993,7 +1006,7 @@ class ChatModel(
     def _check_context_budget(self, messages: list[Message]) -> None:
         """Raise :class:`ContextOverflowError` if messages exceed the context budget.
 
-        Used by ``chat_completion`` — for ``response``, we truncate instead.
+        Used by ``chat_completion`` 鈥?for ``response``, we truncate instead.
         """
         budget = self.config.context_budget.max_context_tokens
         token_count = _estimate_tokens(messages)
@@ -1051,7 +1064,7 @@ class ChatModel(
                 )
                 return current
 
-        # Only system messages left — check if they fit
+        # Only system messages left 鈥?check if they fit
         if _estimate_tokens(system_msgs) > budget:
             raise ContextOverflowError(
                 "System message alone exceeds context budget",

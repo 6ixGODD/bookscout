@@ -83,4 +83,4 @@ Pre-commit hooks run ruff and prettier on commit.
 
 ## License
 
-Private. All rights reserved.
+[Apache License 2.0](LICENSE) — Copyright 2026 BoChen SHEN

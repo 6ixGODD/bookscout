@@ -1,13 +1,26 @@
-"""Indexer abstraction — builds derived indexes from a compiled ontology.
+# Copyright 2026 BoChen SHEN
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+"""Indexer abstraction 鈥?builds derived indexes from a compiled ontology.
 
 Every indexer implements :class:`Indexer`, taking a book_id + workspace
 and building its index (Summary, Chunk, or Graph). The indexer tracks
 progress via :class:`IndexProgress`.
 
 Concrete implementations live in separate packages:
-    * ``bookscout-index-summary`` — :class:`SummaryIndexer`
-    * ``bookscout-index-chunk`` — :class:`ChunkIndexer`
-    * ``bookscout-index-graph`` — :class:`GraphIndexer`
+    * ``bookscout-index-summary`` 鈥?:class:`SummaryIndexer`
+    * ``bookscout-index-chunk`` 鈥?:class:`ChunkIndexer`
+    * ``bookscout-index-graph`` 鈥?:class:`GraphIndexer`
 """
 
 from __future__ import annotations

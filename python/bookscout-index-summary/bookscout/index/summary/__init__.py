@@ -1,4 +1,17 @@
-"""Summary Index — tree-aggregated LLM summaries with token-budget awareness (spec §11.1).
+# Copyright 2026 BoChen SHEN
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+"""Summary Index 鈥?tree-aggregated LLM summaries with token-budget awareness (spec 搂11.1).
 
 Builds summaries bottom-up: leaf nodes first, then parents aggregate
 their own content + children summaries, up to the root (book summary).
@@ -69,7 +82,7 @@ class SummaryEntry:
 
 
 class SummaryStore(LoggingMixin, AsyncResourceMixin):
-    """SQLite-backed store for node summaries (spec §11.1).
+    """SQLite-backed store for node summaries (spec 搂11.1).
 
     Args:
         logger: Logger instance.
@@ -175,7 +188,7 @@ class SummaryStore(LoggingMixin, AsyncResourceMixin):
 
 
 class SummaryIndexer(Indexer):
-    """Builds a Summary Index using LLM tree aggregation (spec §11.1).
+    """Builds a Summary Index using LLM tree aggregation (spec 搂11.1).
 
     For each node, content is checked against the token budget. If it
     exceeds the budget, the content is split into sub-fragments, each
@@ -299,7 +312,7 @@ class SummaryIndexer(Indexer):
                 )
                 return 1
 
-            # Process deepest levels first — children before parents.
+            # Process deepest levels first 鈥?children before parents.
             for level in sorted(nodes_by_level.keys(), reverse=True):
                 batch = nodes_by_level[level]
                 self.logger.debug(
