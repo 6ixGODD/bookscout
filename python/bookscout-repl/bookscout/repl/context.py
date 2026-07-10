@@ -171,20 +171,22 @@ class ReplContext(LoggingMixin, AsyncResourceMixin):
             await self._llm_builder.startup()
 
         # Indexers — built from registry; only providers whose requirements are met.
+        from bookscout.doccompiler.index_provider import IndexContext
         from bookscout.doccompiler.index_registry import IndexRegistry
 
         self._registry = IndexRegistry.load()
         if self._llm is not None and self._embedding is not None and self._vector_store is not None:
+            ctx = IndexContext(
+                logger=self.logger,
+                books_store=self._books_store,
+                llm=self._llm,
+                embedding=self._embedding,
+                vector_store=self._vector_store,
+            )
             for provider in self._registry.all():
                 if provider.requires_vector_store and self._vector_store is None:
                     continue
-                indexer = provider.indexer_factory(
-                    logger=self.logger,
-                    books_store=self._books_store,
-                    llm=self._llm,
-                    embedding=self._embedding,
-                    vector_store=self._vector_store,
-                )
+                indexer = provider.indexer_factory(ctx)
                 self._indexers.append(indexer)
 
         # TaskManager.
