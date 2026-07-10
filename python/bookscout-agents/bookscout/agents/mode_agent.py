@@ -22,8 +22,6 @@ from bookscout.agents.context import StepResult
 
 if t.TYPE_CHECKING:
     from bookscout.llm.types import Message
-    from bookscout.logging import Logger
-    from bookscout.tools.toolset import Toolset
 
 
 class ToolCallStatus(pydantic.BaseModel):
@@ -38,6 +36,7 @@ class ToolCallStatus(pydantic.BaseModel):
         retrieval_stats: Structured retrieval statistics (e.g. entity count,
             chunk count, relationship count). Populated by ModeAgent based on
             tool name and result content.
+        result_text: Full raw result text returned by the tool.
         error: Error message if status is "failed".
         elapsed_ms: Time from call to result, in milliseconds.
     """
@@ -48,6 +47,7 @@ class ToolCallStatus(pydantic.BaseModel):
     status: str = "pending"
     result_summary: str = ""
     retrieval_stats: dict[str, int] = pydantic.Field(default_factory=dict)
+    result_text: str = ""
     error: str = ""
     elapsed_ms: float = 0.0
 
@@ -68,7 +68,6 @@ def _parse_tool_result(tool_name: str, result_text: str) -> tuple[str, dict[str,
         Tuple of (human_readable_summary, retrieval_stats_dict).
     """
     stats: dict[str, int] = {}
-    summary = ""
 
     try:
         data = json.loads(result_text)
@@ -181,31 +180,7 @@ class ModeAgent(Agent):
 
     Subclasses still implement :meth:`step` as usual. The ModeAgent
     automatically enriches the context after each step.
-
-    Args:
-        name: Agent name.
-        instructions: System prompt string or callable.
-        toolset: The agent's toolset.
-        model: Optional model override.
-        logger: Logger instance.
     """
-
-    def __init__(
-        self,
-        *,
-        name: str,
-        instructions: str | t.Callable[[AgentContext], t.Awaitable[str]],
-        toolset: Toolset | None = None,
-        model: str | None = None,
-        logger: Logger,
-    ) -> None:
-        super().__init__(
-            name=name,
-            instructions=instructions,
-            toolset=toolset,
-            model=model,
-            logger=logger,
-        )
 
     async def run(self, messages: list[Message], *, ctx: AgentContext) -> StepResult:
         """Execute the agent and record structured tool-call status.

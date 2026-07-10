@@ -103,7 +103,7 @@ class ReadingAgentToolset(Toolset):
                 self._resources.append(indexer)
                 tools.extend(provider.tool_factory(indexer=indexer, store=store, logger=self.logger, db_path=db_path))
 
-        self.internal_tools = tools
+        self.internal_tools = tools  # pylint: disable=attribute-defined-outside-init
         await super().startup()
 
     async def shutdown(self) -> None:

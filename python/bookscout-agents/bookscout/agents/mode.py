@@ -37,7 +37,6 @@ from .exceptions import ModeStartupError
 
 if t.TYPE_CHECKING:
     from bookscout.llm import ChatModel
-    from bookscout.llm.types import Message
     from bookscout.logging import Logger
 
     from .agent import Agent
@@ -238,36 +237,12 @@ class Mode(LoggingMixin, AsyncResourceMixin, abc.ABC):
         """Append an assistant message to the conversation history."""
         self._messages.append({"role": "assistant", "content": content})
 
-    async def _build_llm_messages_async(self, ctx: AgentContext, agent: Agent) -> list[Message]:
-        """Build the full message list for an LLM call (async).
-
-        Args:
-            ctx: The execution context.
-            agent: The agent that will process these messages.
-
-        Returns:
-            Full message list (conversation history only, no system prompt).
-        """
-        from bookscout.llm.types import AssistantMessage
-        from bookscout.llm.types import UserMessage
-
-        messages: list[Message] = []
-        for msg in self._messages:
-            if msg["role"] == "user":
-                messages.append(UserMessage(content=msg["content"]))
-            elif msg["role"] == "assistant":
-                messages.append(AssistantMessage(content=msg["content"]))
-        return messages
-
-    async def _maybe_auto_compact(self, ctx: AgentContext) -> bool:
+    async def _maybe_auto_compact(self) -> bool:
         """Check if conversation needs compaction and do it if so.
 
         Compaction: if the clean conversation's token count exceeds
         80% of ``max_context_tokens``, summarize the oldest messages
         via the LLM and replace them with a compact summary.
-
-        Args:
-            ctx: The execution context.
 
         Returns:
             True if compaction was performed.

@@ -20,11 +20,6 @@ if t.TYPE_CHECKING:
     from bookscout.llm import ChatModel
 
 
-# ═══════════════════════════════════════════════════════════════════
-# Agent run state
-# ═══════════════════════════════════════════════════════════════════
-
-
 class AgentRunState(enum.StrEnum):
     """Lifecycle state of an agent within a mode's run loop."""
 

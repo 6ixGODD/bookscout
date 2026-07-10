@@ -94,7 +94,7 @@ class ReadingMode(Mode):
 
         self._update_state(phase="preparing", active_agent=agent.name)
         self.append_user_message(user_input)
-        await self._maybe_auto_compact(ctx)
+        await self._maybe_auto_compact()
 
         # Build clean messages for the agent.
         from bookscout.llm.types import AssistantMessage
@@ -149,7 +149,7 @@ class ReadingMode(Mode):
         yield StreamChunk(kind="status", data={"phase": "preparing", "agent": agent.name})
 
         self.append_user_message(user_input)
-        compacted = await self._maybe_auto_compact(ctx)
+        compacted = await self._maybe_auto_compact()
         if compacted:
             yield StreamChunk(kind="status", data={"phase": "auto_compacted"})
 
@@ -213,6 +213,8 @@ class ReadingMode(Mode):
                             "call_id": call_id,
                             "summary": status_entry.get("result_summary", "") if status_entry else "",
                             "retrieval_stats": status_entry.get("retrieval_stats", {}) if status_entry else {},
+                            "arguments": status_entry.get("arguments", {}) if status_entry else {},
+                            "result_text": status_entry.get("result_text", "") if status_entry else "",
                         },
                     )
                     yield StreamChunk(
