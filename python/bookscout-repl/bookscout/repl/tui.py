@@ -108,9 +108,13 @@ class BookScoutTui(App[None]):
         background: #000000;
         color: #c0c0c0;
         scrollbar-size: 0 0;
+        layers: none;
+        overflow: hidden;
     }
     * {
         scrollbar-size: 0 0;
+        margin: 0;
+        padding: 0;
     }
     #status_bar {
         dock: bottom;
@@ -188,6 +192,7 @@ class BookScoutTui(App[None]):
     }
     Container {
         background: #000000;
+        width: 100%;
     }
     Rule {
         color: #ffffff;
@@ -202,6 +207,7 @@ class BookScoutTui(App[None]):
         color: #c0c0c0;
         padding: 0 0 0 0;
         height: 3;
+        width: 100%;
     }
     Input:focus {
         border-top: solid #ffffff;
@@ -360,6 +366,13 @@ class BookScoutTui(App[None]):
         if phase == "chat":
             return "type : for commands"
         return ""
+
+    @staticmethod
+    def _set_console_title(title: str) -> None:
+        """Set the terminal window/tab title via escape sequence."""
+        import sys
+        sys.stdout.write(f"\x1b]0;{title}\x07")
+        sys.stdout.flush()
 
     def _update_header_hint(self, phase: str) -> None:
         with contextlib.suppress(Exception):
@@ -837,6 +850,7 @@ class BookScoutTui(App[None]):
         with contextlib.suppress(Exception):
             hint = f"{title}  by {author}"
             self.query_one("#header_hint", Static).update(hint)
+        BookScoutTui._set_console_title(f"BookScout - {title}")
         self._set_status(f"  {book.title or '(untitled)'}")
         self._focus_input()
 
