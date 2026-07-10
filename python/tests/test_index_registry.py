@@ -138,3 +138,26 @@ def test_index_context_all_fields():
     assert ctx.embedding == "emb"
     assert ctx.vector_store == "vs"
     assert ctx.db_path == pathlib.Path("/tmp/x.sqlite")
+
+
+# -- Real provider tests -----------------------------------------------------
+
+
+def test_summary_provider_factory_signatures():
+    """Summary provider factories should accept IndexContext-based signatures."""
+    # Verify factories are callable and accept the new signatures.
+    # We use lightweight mocks to avoid requiring real Logger/BooksStore.
+    import inspect
+
+    from bookscout.index.summary.provider import INDEX_PROVIDER as SUMMARY_PROVIDER
+
+    sig_indexer = inspect.signature(SUMMARY_PROVIDER.indexer_factory)
+    assert "ctx" in sig_indexer.parameters
+
+    sig_store = inspect.signature(SUMMARY_PROVIDER.store_factory)
+    assert "ctx" in sig_store.parameters
+
+    sig_tool = inspect.signature(SUMMARY_PROVIDER.tool_factory)
+    assert "ctx" in sig_tool.parameters
+    assert "indexer" in sig_tool.parameters
+    assert "store" in sig_tool.parameters
