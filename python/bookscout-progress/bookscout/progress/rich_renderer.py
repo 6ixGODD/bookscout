@@ -3,11 +3,11 @@
 Layout (top to bottom inside one ``Live`` region)::
 
     ┌ bookscout-graphrag build ────────────────────────────────┐
-    │ build      ━━━━━━━━━━━━━━━━━━━━━━━ 100% 0:00:42 done   │
-    │   chunk    ━━━━━━━━━━━━━━━━━━━━━━━ 100% 0:00:02 done   │
-    │   extract  ━━━━━━━━━━━━━━━━━━━━━━━  67% 0:03:12 12/36  │
-    │   merge    ░░░░░░░░░░░░░░░░░░░░░░░   0% waiting        │
-    └────────────────────────────────────────────────────────┘
+    │ build      ━━━━━━━━━━━━━━━━━━━━━━━ 100% 0:00:42 done     │
+    │   chunk    ━━━━━━━━━━━━━━━━━━━━━━━ 100% 0:00:02 done     │
+    │   extract  ━━━━━━━━━━━━━━━━━━━━━━━  67% 0:03:12 12/36    │
+    │   merge    ░░░░░░░░░░░░░░░░░░░░░░░   0% waiting          │
+    └──────────────────────────────────────────────────────────┘
     14:33:18 INFO  graphrag.PIPELINE  process_texts: text extracted ...
     14:33:20 INFO  graphrag.EXTRACT   chunk 18/36 done (12 entities)
 
@@ -161,7 +161,8 @@ class RichLiveRenderer(Renderer):
         log_panel = self._render_log_tail()
         return Panel(Group(progress, log_panel), title=self._title, border_style="cyan")
 
-    def _build_progress(self) -> Progress:
+    @staticmethod
+    def _build_progress() -> Progress:
         return Progress(
             TextColumn("[bold blue]{task.description}"),
             BarColumn(bar_width=None),
@@ -171,7 +172,8 @@ class RichLiveRenderer(Renderer):
             expand=True,
         )
 
-    def _add_task(self, progress: Progress, snap: TaskSnapshot) -> t.Any:
+    @staticmethod
+    def _add_task(progress: Progress, snap: TaskSnapshot) -> t.Any:
         indent = "  " * snap.depth
         return progress.add_task(
             f"{indent}{snap.label}",
@@ -179,7 +181,8 @@ class RichLiveRenderer(Renderer):
             completed=snap.completed if snap.total > 0 else 0,
         )
 
-    def _description(self, snap: TaskSnapshot) -> str:
+    @staticmethod
+    def _description(snap: TaskSnapshot) -> str:
         indent = "  " * snap.depth
         suffix = _status_suffix(snap)
         return f"{indent}{snap.label}{suffix}"

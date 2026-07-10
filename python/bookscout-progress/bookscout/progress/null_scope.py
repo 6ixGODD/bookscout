@@ -10,6 +10,7 @@ monitor methods already treat as "no task" (``start``/``advance`` with a
 from __future__ import annotations
 
 import contextlib
+import types
 import typing as t
 
 
@@ -38,7 +39,7 @@ class NullScope:
         self,
         exc_type: type[BaseException] | None,
         exc_val: BaseException | None,
-        exc_tb: t.Any,
+        exc_tb: types.TracebackType | None,
     ) -> None:
         pass
 

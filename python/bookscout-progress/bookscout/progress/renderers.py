@@ -17,6 +17,7 @@ Two concrete renderers ship here:
 from __future__ import annotations
 
 import abc
+import types
 import typing as t
 
 from .monitor import Monitor
@@ -50,7 +51,7 @@ class Renderer(abc.ABC):
         self,
         exc_type: type[BaseException] | None,
         exc_val: BaseException | None,
-        exc_tb: t.Any,
+        exc_tb: types.TracebackType | None,
     ) -> None:
         self._stop()
 
@@ -81,6 +82,7 @@ class NullRenderer(Renderer):
 
 # RichLiveRenderer imports ``rich`` lazily so the package stays importable
 # without the ``tui`` extra installed (e.g. on a GUI client).
+# pylint: disable-next=wrong-import-position
 from .rich_renderer import RichLiveRenderer  # noqa: E402
 
 __all__ = ["NullRenderer", "Renderer", "RichLiveRenderer"]

@@ -95,10 +95,6 @@ class Monitor:
         # Stable insertion order so the tree renders top-down deterministically.
         self._order: list[str] = []
 
-    # ------------------------------------------------------------------
-    # Task lifecycle
-    # ------------------------------------------------------------------
-
     def start(
         self,
         label: str,
@@ -187,10 +183,6 @@ class Monitor:
                 return
             task.label = label
 
-    # ------------------------------------------------------------------
-    # Scope helper
-    # ------------------------------------------------------------------
-
     @contextlib.contextmanager
     def scope(self, task_id: str) -> t.Generator[str]:
         """Context manager that finishes the task on exit (success or fail).
@@ -203,12 +195,7 @@ class Monitor:
         except BaseException as exc:
             self.fail(task_id, error=repr(exc))
             raise
-        else:
-            self.finish(task_id)
-
-    # ------------------------------------------------------------------
-    # Snapshot
-    # ------------------------------------------------------------------
+        self.finish(task_id)
 
     def snapshot(self) -> list[TaskSnapshot]:
         """Return a list of :class:`TaskSnapshot` in depth-first tree order.
@@ -329,7 +316,8 @@ class MonitorScope:
 
     @property
     def id(self) -> str | None:
-        """The owned task id, or ``None`` before ``__enter__`` / after ``__exit__``."""
+        """The owned task id, or ``None`` before ``__enter__`` / after
+        ``__exit__``."""
         return self._owned_id
 
     def __exit__(
