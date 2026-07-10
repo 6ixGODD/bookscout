@@ -35,6 +35,7 @@ from .compiler import CompileResult
 from .compiler import CompileStage
 from .compiler import CompileStatus
 from .compiler import Compiler
+from .index_provider import IndexContext
 from .index_provider import IndexProvider
 from .index_registry import IndexRegistry
 from .indexer import IndexProgress
@@ -62,6 +63,7 @@ __all__ = [
     "DocParser",
     "EpubParser",
     "EpubSourceMapping",
+    "IndexContext",
     "IndexProgress",
     "IndexProvider",
     "IndexRegistry",

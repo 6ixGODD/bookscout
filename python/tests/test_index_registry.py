@@ -3,20 +3,22 @@
 from __future__ import annotations
 
 import dataclasses
+import pathlib
 
+from bookscout.doccompiler.index_provider import IndexContext
 from bookscout.doccompiler.index_provider import IndexProvider
 from bookscout.doccompiler.index_registry import IndexRegistry
 
 
-def _fake_indexer_factory(_logger, _books_store, **_kw):
+def _fake_indexer_factory(_ctx: IndexContext):
     return type("FakeIndexer", (), {"index_type": "fake"})()
 
 
-def _fake_tool_factory(_indexer, _store, **_kw):
+def _fake_tool_factory(_indexer, _store, _ctx: IndexContext):
     return []
 
 
-def _fake_store_factory(_db_path, _logger, **_kw):
+def _fake_store_factory(_ctx: IndexContext):
     return None
 
 
@@ -99,3 +101,40 @@ def test_provider_description_field():
         description="Some prose",
     )
     assert p.description == "Some prose"
+
+
+# -- IndexContext tests -------------------------------------------------------
+
+
+def test_index_context_is_frozen():
+    ctx = IndexContext(logger=None, books_store=None)  # type: ignore[arg-type]
+    try:
+        ctx.logger = "x"  # type: ignore[misc]
+        raise AssertionError("should have raised FrozenInstanceError")
+    except dataclasses.FrozenInstanceError:
+        pass
+
+
+def test_index_context_optional_fields_default_none():
+    ctx = IndexContext(logger=None, books_store=None)  # type: ignore[arg-type]
+    assert ctx.llm is None
+    assert ctx.embedding is None
+    assert ctx.vector_store is None
+    assert ctx.db_path is None
+
+
+def test_index_context_all_fields():
+    ctx = IndexContext(
+        logger="log",  # type: ignore[arg-type]
+        books_store="bs",  # type: ignore[arg-type]
+        llm="chat",  # type: ignore[arg-type]
+        embedding="emb",  # type: ignore[arg-type]
+        vector_store="vs",  # type: ignore[arg-type]
+        db_path=pathlib.Path("/tmp/x.sqlite"),
+    )
+    assert ctx.logger == "log"
+    assert ctx.books_store == "bs"
+    assert ctx.llm == "chat"
+    assert ctx.embedding == "emb"
+    assert ctx.vector_store == "vs"
+    assert ctx.db_path == pathlib.Path("/tmp/x.sqlite")

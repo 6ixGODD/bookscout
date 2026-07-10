@@ -10,16 +10,48 @@ index package.
 from __future__ import annotations
 
 import dataclasses
+import pathlib
 import typing as t
 
 if t.TYPE_CHECKING:
+    from bookscout.books import BooksStore
     from bookscout.doccompiler.indexer import Indexer
+    from bookscout.embedding import EmbeddingSystem
+    from bookscout.llm import ChatModel
+    from bookscout.logging import Logger
     from bookscout.tools import BaseTool
+    from bookscout.vectorstore.lancedb import LanceDBStore
 
 
-IndexerFactory = t.Callable[..., "Indexer"]
-ToolFactory = t.Callable[..., list["BaseTool"]]
-StoreFactory = t.Callable[..., t.Any]
+@dataclasses.dataclass(frozen=True, slots=True)
+class IndexContext:
+    """Explicit dependency context — replaces **kw: t.Any implicit passing.
+
+    All IndexProvider factory callables receive this instead of scattered
+    keyword arguments. Optional fields are ``None`` when the corresponding
+    infrastructure is unavailable; callers must check ``requires_vector_store``
+    on the provider before relying on ``embedding`` / ``vector_store``.
+
+    Attributes:
+        logger: Logger instance.
+        books_store: The BooksStore to read node content from.
+        llm: ChatModel, or ``None`` if no API key configured.
+        embedding: Embedding system, or ``None`` if unavailable.
+        vector_store: Vector store, or ``None`` if unavailable.
+        db_path: Path to the index-specific SQLite file.
+    """
+
+    logger: Logger
+    books_store: BooksStore
+    llm: ChatModel | None = None
+    embedding: EmbeddingSystem | None = None
+    vector_store: LanceDBStore | None = None
+    db_path: pathlib.Path | None = None
+
+
+IndexerFactory = t.Callable[[IndexContext], "Indexer"]
+ToolFactory = t.Callable[["Indexer | None", t.Any, IndexContext], list["BaseTool"]]
+StoreFactory = t.Callable[[IndexContext], t.Any]
 
 
 @dataclasses.dataclass(frozen=True, slots=True)
@@ -32,10 +64,11 @@ class IndexProvider:
         short_letter: Single lowercase char for TUI book-list [csg] indicator.
         requires_vector_store: True if the indexer needs an embedding/vector store.
         default_enabled: True if this index is ticked by default in the TUI.
-        indexer_factory: Callable(logger, books_store, llm=, embedding=, vector_store=, ...) -> Indexer.
-        tool_factory: Callable(indexer, store, logger=, ...) -> list[BaseTool].
-        store_factory: Callable(db_path: pathlib.Path, logger, ...) -> store instance.
+        indexer_factory: Callable(ctx: IndexContext) -> Indexer.
+        tool_factory: Callable(indexer, store, ctx: IndexContext) -> list[BaseTool].
+        store_factory: Callable(ctx: IndexContext) -> store instance.
         db_path_name: Name passed to ``BookWorkspace.index_db_path(name)``, usually == index_type.
+        description: Optional one-line description.
     """
 
     index_type: str
@@ -50,4 +83,4 @@ class IndexProvider:
     description: str = ""
 
 
-__all__ = ["IndexProvider"]
+__all__ = ["IndexContext", "IndexProvider"]
