@@ -321,10 +321,7 @@ class BookScoutTui(App[None]):
         if self._initial_book_id:
             book = next((b for b in self._books if b.id == self._initial_book_id), None)
             if book is not None:
-                self._selected_book = book
-                self.phase = "chat"
-                self._set_status(f"  {book.title or '(untitled)'}")
-                self._focus_input()
+                await self._enter_chat(book)  # handles session creation
                 return
 
         self._refresh_books_list()
