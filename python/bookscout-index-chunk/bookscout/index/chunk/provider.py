@@ -2,13 +2,25 @@
 
 from __future__ import annotations
 
+import typing as t
+
 from bookscout.doccompiler.index_provider import IndexProvider
 
+if t.TYPE_CHECKING:
+    import pathlib
 
-def _indexer_factory(logger, books_store, **kw):
+    from bookscout.books import BooksStore
+    from bookscout.doccompiler import Indexer
+    from bookscout.index.chunk import ChunkIndexer
+    from bookscout.index.chunk import ChunkStore
+    from bookscout.logging import Logger
+    from bookscout.tools import BaseTool
+
+
+def _indexer_factory(logger: Logger, books_store: BooksStore, **kw: t.Any) -> Indexer:
     from bookscout.llm import ChatModel
 
-    from .__init__ import ChunkIndexer
+    from . import ChunkIndexer
 
     return ChunkIndexer(
         logger=logger,
@@ -20,14 +32,14 @@ def _indexer_factory(logger, books_store, **kw):
 
 
 # pylint: disable-next=unused-argument
-def _store_factory(db_path, logger, **kw):  # noqa: ARG001
-    from .__init__ import ChunkStore
+def _store_factory(db_path: pathlib.Path, logger: Logger, **_kw: t.Any) -> ChunkStore:
+    from . import ChunkStore
 
     return ChunkStore(logger=logger, db_path=db_path)
 
 
 # pylint: disable-next=unused-argument
-def _tool_factory(indexer, store, **kw):  # noqa: ARG001
+def _tool_factory(indexer: ChunkIndexer, store: ChunkStore, **_kw: t.Any) -> list[BaseTool]:
     from .tools import create_chunk_tools
 
     return create_chunk_tools(indexer, store)

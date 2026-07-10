@@ -6,9 +6,18 @@ import typing as t
 
 from bookscout.doccompiler.index_provider import IndexProvider
 
+if t.TYPE_CHECKING:
+    import pathlib
 
-def _indexer_factory(logger, books_store, **kw: t.Any):
-    from .__init__ import SummaryIndexer
+    from bookscout.books import BooksStore
+    from bookscout.doccompiler import Indexer
+    from bookscout.index.summary import SummaryStore
+    from bookscout.logging import Logger
+    from bookscout.tools import BaseTool
+
+
+def _indexer_factory(logger: Logger, books_store: BooksStore, **kw: t.Any) -> Indexer:
+    from . import SummaryIndexer
 
     return SummaryIndexer(
         logger=logger,
@@ -18,14 +27,14 @@ def _indexer_factory(logger, books_store, **kw: t.Any):
 
 
 # pylint: disable-next=unused-argument
-def _store_factory(db_path, logger, **kw: t.Any):  # noqa: ARG001
-    from .__init__ import SummaryStore
+def _store_factory(db_path: pathlib.Path, logger: Logger, **_kw: t.Any) -> SummaryStore:
+    from . import SummaryStore
 
     return SummaryStore(logger=logger, db_path=db_path)
 
 
 # pylint: disable-next=unused-argument
-def _tool_factory(indexer, store, **kw: t.Any):  # noqa: ARG001
+def _tool_factory(indexer, store, **kw: t.Any) -> list[BaseTool]:  # noqa: ARG001
     # create_summary_tools takes (logger, db_path) and internally builds its own
     # SummaryStore per tool; the toolset's _startup_hidden_summary_stores starts them.
     from .tools import create_summary_tools

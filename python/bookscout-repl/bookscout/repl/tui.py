@@ -54,23 +54,22 @@ class CommandInput(Input):
         palette = getattr(app, "_palette_open", False)
 
         if palette:
-            event.stop()
-            event.prevent_default()
-            if event.key == "escape":
-                app._close_palette()  # type: ignore[attr-defined]
-            elif event.key == "up":
-                app._palette_move(-1)  # type: ignore[attr-defined]
-            elif event.key == "down":
-                app._palette_move(1)  # type: ignore[attr-defined]
-            elif event.key == "enter":
-                app._accept_palette()  # type: ignore[attr-defined]
-            elif event.key == "backspace":
-                # Let backspace through to update input value, then re-render.
-                await super()._on_key(event)
-                app._render_palette()  # type: ignore[attr-defined]
-            elif event.character is not None and event.character.isprintable():
-                await super()._on_key(event)
-                app._render_palette()  # type: ignore[attr-defined]
+            if event.key in ("escape", "up", "down", "enter"):
+                event.stop()
+                event.prevent_default()
+                if event.key == "escape":
+                    app._close_palette()  # type: ignore[attr-defined]
+                elif event.key == "up":
+                    app._palette_move(-1)  # type: ignore[attr-defined]
+                elif event.key == "down":
+                    app._palette_move(1)  # type: ignore[attr-defined]
+                elif event.key == "enter":
+                    app._accept_palette()  # type: ignore[attr-defined]
+                return
+            # Backspace / printable: let the Input handle them normally,
+            # then re-render the palette from the updated input value.
+            await super()._on_key(event)
+            app._render_palette()  # type: ignore[attr-defined]
             return
 
         if phase in ("index_select", "builder_select") and event.key in ("up", "down", "space"):
