@@ -350,34 +350,93 @@ class TaskManager(LoggingMixin, AsyncResourceMixin):
             state.total = len(indexers_to_run)
             state.processed = 0
 
-            results: dict[str, t.Any] = {}
+            # Monitor integration: create a parent task so the TUI renderer
+            # shows nested progress bars for each indexer.
+            idx_root = self._monitor.start("indexes", total=len(indexers_to_run)) if self._monitor else None
+
+            # Seed manifest rows (pending + building) for every indexer
+            # before we fan out — these are fast sequential writes.
             for indexer in indexers_to_run:
-                state.stage = f"build_{indexer.index_type}_index"
-                self.logger.info("building index", task_id=task_id, index_type=indexer.index_type)
-                # Seed a `pending` row first; set_index_status would otherwise
-                # StoreError with "Manifest row not found" on a fresh build.
                 await self._books_store.upsert_index(book_id, indexer.index_type, "pending")
                 await self._books_store.set_index_status(book_id, indexer.index_type, "building")
-                try:
-                    result = await indexer.build_index(book_id, workspace)
-                    await self._books_store.upsert_index(
-                        book_id, indexer.index_type, "built",
-                        count=result.count, built_at=utcnow_ts(),
+
+            results: dict[str, t.Any] = {}
+
+            async def _build_one(indexer: t.Any) -> tuple[str, int | Exception]:
+                idx_tid = (
+                    self._monitor.start(
+                        f"index:{indexer.index_type}",
+                        total=0,
+                        parent_id=idx_root,
                     )
-                    results[indexer.index_type] = result.count
+                    if self._monitor
+                    else None
+                )
+                try:
+                    self.logger.info("building index", task_id=task_id, index_type=indexer.index_type)
+                    result = await indexer.build_index(
+                        book_id,
+                        workspace,
+                        monitor=self._monitor,
+                        parent_id=idx_tid,
+                    )
+                    await self._books_store.upsert_index(
+                        book_id,
+                        indexer.index_type,
+                        "built",
+                        count=result.count,
+                        built_at=utcnow_ts(),
+                    )
+                    if self._monitor and idx_tid:
+                        self._monitor.update_label(idx_tid, f"index:{indexer.index_type} ({result.count})")
+                        self._monitor.finish(idx_tid)
+                    if self._monitor and idx_root:
+                        self._monitor.advance(idx_root, 1)
+                    return (indexer.index_type, result.count)
                 except Exception as idx_err:
                     await self._books_store.upsert_index(
-                        book_id, indexer.index_type, "failed", error=repr(idx_err),
+                        book_id,
+                        indexer.index_type,
+                        "failed",
+                        error=repr(idx_err),
                     )
-                    raise
+                    if self._monitor and idx_tid:
+                        self._monitor.fail(idx_tid, error=repr(idx_err))
+                    if self._monitor and idx_root:
+                        self._monitor.advance(idx_root, 1)
+                    return (indexer.index_type, idx_err)
+
+            # Run all indexers concurrently — they are independent.
+            outcomes = await asyncio.gather(*(_build_one(i) for i in indexers_to_run))
+
+            if self._monitor and idx_root:
+                self._monitor.finish(idx_root)
+
+            # Collect results and surface the first error.
+            first_error: Exception | None = None
+            for idx_type, value in outcomes:
+                if isinstance(value, Exception):
+                    if first_error is None:
+                        first_error = value
+                else:
+                    results[idx_type] = value
                 state.processed += 1
+
+            self.logger.info(
+                "index task gathered",
+                task_id=task_id,
+                results={k: v for k, v in results.items() if not isinstance(v, Exception)},
+            )
+
+            if first_error is not None:
+                raise first_error
 
             state.status = "succeeded"
             state.stage = "finished"
             state.result = results
             self.logger.info("index task succeeded", task_id=task_id, results=results)
 
-        except Exception as e:
+        except Exception as e:  # pylint: disable=broad-exception-caught
             state.status = "failed"
             state.error = repr(e)
             self.logger.error("index task failed", task_id=task_id, error=repr(e))
