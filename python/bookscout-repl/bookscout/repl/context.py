@@ -43,6 +43,8 @@ if t.TYPE_CHECKING:
     from bookscout.progress import Monitor
     from bookscout.vectorstore.lancedb import LanceDBStore
 
+    from .session_manager import SessionManager
+
 
 class ReplContext(LoggingMixin, AsyncResourceMixin):
     """Owns the runtime resources shared by the REPL server and the TUI.
@@ -90,6 +92,7 @@ class ReplContext(LoggingMixin, AsyncResourceMixin):
         self._indexers: list[Indexer] = []
         self._registry: IndexRegistry | None = None
         self._monitor: Monitor | None = None
+        self._session_manager: SessionManager | None = None
 
     async def startup(self) -> None:
         """Initialize all resources from config.
@@ -207,6 +210,12 @@ class ReplContext(LoggingMixin, AsyncResourceMixin):
         )
         await self._task_manager.startup()
 
+        # SessionManager — global session store.
+        from .session_manager import SessionManager
+
+        self._session_manager = SessionManager(workdir=self._workdir, logger=self.logger)
+        await self._session_manager.startup()
+
         # Bootstrap manifest from existing index files (idempotent migration).
         await self._bootstrap_manifest_from_files()
 
@@ -215,6 +224,9 @@ class ReplContext(LoggingMixin, AsyncResourceMixin):
 
     async def shutdown(self) -> None:
         """Shut down all resources in reverse order."""
+        if self._session_manager is not None:
+            await self._session_manager.shutdown()
+
         for mode in self._modes.values():
             await mode.shutdown()
         self._modes.clear()
@@ -314,6 +326,13 @@ class ReplContext(LoggingMixin, AsyncResourceMixin):
     def registry(self) -> t.Any:
         """The IndexRegistry."""
         return self._registry
+
+    @property
+    def session_manager(self) -> SessionManager:
+        """The global SessionManager (raises if not started)."""
+        if self._session_manager is None:
+            raise RuntimeError("ReplContext not started")
+        return self._session_manager
 
     @property
     def has_llm_builder(self) -> bool:
