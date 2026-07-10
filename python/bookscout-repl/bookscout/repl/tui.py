@@ -183,18 +183,8 @@ class BookScoutTui(App[None]):
         display: none;
         scrollbar-size: 0 0;
     }
-    #command_palette ListView {
-        background: #1a1a1a;
-        scrollbar-size: 0 0;
-    }
-    #command_palette ListView > ListItem {
-        padding: 0 1;
-        background: #1a1a1a;
-        color: #aaaaaa;
-    }
-    #command_palette ListView > ListItem.--highlight {
-        background: #333333;
-        color: #ffffff;
+    #palette_list {
+        height: auto;
     }
     Container {
         background: #000000;
@@ -297,7 +287,7 @@ class BookScoutTui(App[None]):
             yield CommandInput(id="select_input")
             yield CommandInput(id="chat_input")
         with Container(id="command_palette"):
-            yield ListView(id="palette_list")
+            yield Static("", id="palette_list")
         yield Static("", id="status_bar")
 
     def on_mount(self) -> None:
@@ -1279,44 +1269,34 @@ class BookScoutTui(App[None]):
             self._render_palette()
             return
         self._palette_open = True
+        self._palette_focus_idx = 0
         self._render_palette()
 
     def _close_palette(self) -> None:
         self._palette_open = False
+        self._palette_focus_idx = 0
         self._skip_palette = False
         with contextlib.suppress(Exception):
             self.query_one("#command_palette", Container).display = False
 
     def _palette_move(self, delta: int) -> None:
-        try:
-            lv = self.query_one("#palette_list", ListView)
-            idx = lv.index
-            if idx is not None and idx < len(lv.children):
-                lv.index = max(0, min(len(lv.children) - 1, idx + delta))
-        except Exception:
-            pass
+        self._palette_focus_idx = max(0, self._palette_focus_idx + delta)
+        self._render_palette()
 
     def _accept_palette(self) -> None:
-        cmd = ""
         try:
-            lv = self.query_one("#palette_list", ListView)
-            idx = lv.index
-            if idx is not None and idx < len(lv.children):
-                item = lv.children[idx]
-                for w in item.query(Static):
-                    if isinstance(w.renderable, Text):
-                        cmd = w.renderable.plain.split()[0].lstrip(":")
-                        break
-        except Exception:
-            pass
-
-        if not cmd:
-            # Palette had no match — submit whatever is in the input (e.g. ":book").
-            try:
-                cmd = self._active_input().value.lstrip(":")
-            except Exception:
+            inp = self._active_input()
+            query = inp.value.lstrip(":").lower()
+            all_cmds = self._palette_commands()
+            filtered = [(cmd, desc) for cmd, desc in all_cmds if not query or query in cmd.lower()]
+            if not filtered:
                 self._close_palette()
                 return
+            self._palette_focus_idx = max(0, min(self._palette_focus_idx, len(filtered) - 1))
+            cmd = filtered[self._palette_focus_idx][0]
+        except Exception:
+            self._close_palette()
+            return
 
         self._close_palette()
         self._skip_palette = True
@@ -1341,17 +1321,20 @@ class BookScoutTui(App[None]):
         if not filtered:
             self._close_palette()
             return
+        # Clamp focus.
+        self._palette_focus_idx = max(0, min(self._palette_focus_idx, len(filtered) - 1))
+        # Render as Static text — avoid ListView focus / highlight issues.
+        out = Text()
+        for i, (cmd, desc) in enumerate(filtered):
+            if i > 0:
+                out.append(Text("\n"))
+            focused = i == self._palette_focus_idx
+            style = "bold white" if focused else "#888888"
+            out.append(Text(f"  :{cmd}  ", style=style))
+            out.append(Text(desc, style="#666666" if focused else "#444444"))
         palette = self.query_one("#command_palette", Container)
-        lv = self.query_one("#palette_list", ListView)
-        lv.clear()
-        for cmd, desc in filtered:
-            label = Text.assemble(
-                Text(f":{cmd}  ", style="bold #ffffff"),
-                Text(desc, style="#888888"),
-            )
-            lv.append(ListItem(Static(label)))
-        if filtered:
-            lv.index = 0
+        with contextlib.suppress(Exception):
+            self.query_one("#palette_list", Static).update(out)
         palette.display = True
         palette.styles.height = min(len(filtered) + 1, 14)
 
