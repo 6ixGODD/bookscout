@@ -24,6 +24,12 @@ from pydantic import create_model
 from pydantic.fields import FieldInfo
 from pydantic.fields import _FromFieldInfoInputs
 
+# Re-export core MCP types for convenience.
+# McpClient / McpClientError are safe to export eagerly (no circular deps).
+# ExternalMcpToolset is loaded lazily via __getattr__ to avoid circular imports.
+from .mcp_client import McpClient as McpClient
+from .mcp_client import McpClientError as McpClientError
+
 
 class Function(t.NamedTuple):
     """LLM tool-call function specification."""
@@ -247,10 +253,26 @@ def _merge_default(field_info: FieldInfo, default: t.Any) -> FieldInfo:
         examples=field_info.examples,
         json_schema_extra=field_info.json_schema_extra,
     )
-    # Replay constraint metadata from the original (Gt, Le, MinLen, 鈥?
+    # Replay constraint metadata from the original (Gt, Le, MinLen, etc.)
     for item in field_info.metadata:
         new_fi.metadata.append(item)
     return new_fi
+
+
+def __getattr__(name: str) -> t.Any:
+    """Lazy-import ``ExternalMcpToolset`` to avoid circular imports."""
+    if name == "ExternalMcpToolset":
+        from .mcp_toolset import ExternalMcpToolset as _ext
+
+        return _ext
+    msg = f"module {__name__!r} has no attribute {name!r}"
+    raise AttributeError(msg)
+
+
+def __dir__() -> list[str]:
+    """Include lazy-loaded exports for discoverability."""
+    base = {k for k in globals() if not k.startswith("_")}
+    return sorted({*base, "ExternalMcpToolset", "McpClient", "McpClientError"})
 
 
 class ToolExecutor:

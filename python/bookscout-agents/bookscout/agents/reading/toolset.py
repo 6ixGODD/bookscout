@@ -36,6 +36,7 @@ class ReadingAgentToolset(Toolset):
         registry: t.Any,
         books_store: BooksStore,
         skill_loader: t.Any | None = None,
+        external_mcp_configs: t.Sequence[t.Any] | None = None,
     ) -> None:
         super().__init__(
             name="reading_retrieval",
@@ -51,6 +52,7 @@ class ReadingAgentToolset(Toolset):
         self._books_store = books_store
         self._resources: list[t.Any] = []
         self._skill_loader = skill_loader
+        self._external_mcp_configs = list(external_mcp_configs) if external_mcp_configs else []
 
     async def startup(self) -> None:
         from bookscout.books.tools import create_ontology_tools
@@ -113,6 +115,18 @@ class ReadingAgentToolset(Toolset):
                     await indexer.startup()
                 self._resources.append(indexer)
                 tools.extend(provider.tool_factory(indexer=indexer, store=store, ctx=ctx))
+
+        # 5. External MCP tools — connect to configured MCP servers.
+        if self._external_mcp_configs:
+            from bookscout.tools.mcp_toolset import ExternalMcpToolset
+
+            mcp_toolset = ExternalMcpToolset(
+                configs=self._external_mcp_configs,
+                logger=self.logger,
+            )
+            await mcp_toolset.startup()
+            self._resources.append(mcp_toolset)
+            tools.extend(mcp_toolset.tools)
 
         self.internal_tools = tools  # pylint: disable=attribute-defined-outside-init
         await super().startup()

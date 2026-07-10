@@ -478,6 +478,7 @@ class ReplContext(LoggingMixin, AsyncResourceMixin):
             books_store=self._books_store,
             system_prompt=prompt,
             skill_loader=skill_loader,
+            external_mcp_configs=self._config.mcp_servers,
         )
         await mode.startup()
         self._modes[session_id] = mode

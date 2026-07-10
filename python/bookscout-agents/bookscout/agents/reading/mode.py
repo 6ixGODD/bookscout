@@ -51,6 +51,7 @@ class ReadingMode(Mode):
         books_store: BooksStore,
         system_prompt: str | None = None,
         skill_loader: t.Any | None = None,
+        external_mcp_configs: t.Sequence[t.Any] | None = None,
     ) -> None:
         self.config = config
         self._session_repo: ReadingSessionRepository | None = None
@@ -63,6 +64,7 @@ class ReadingMode(Mode):
             registry=registry,
             books_store=books_store,
             skill_loader=skill_loader,
+            external_mcp_configs=external_mcp_configs,
         )
         agent = ReadingAgent(toolset=toolset, profiles=config.llm_profiles, logger=logger, instructions=system_prompt)
         super().__init__(
