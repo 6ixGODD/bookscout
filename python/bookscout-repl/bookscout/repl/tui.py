@@ -220,7 +220,7 @@ class BookScoutTui(App[None]):
     """
 
     BINDINGS = [
-        ("ctrl+c", "quit", "Quit"),
+        ("ctrl+c", "handle_ctrl_c", "Quit / Copy"),
         ("ctrl+o", "toggle_verbose_tools", "Toggle verbose tool calls"),
     ]
 
@@ -1237,6 +1237,17 @@ class BookScoutTui(App[None]):
         self._verbose_tools = not self._verbose_tools
         self._set_status(f"  verbose tool calls: {'ON' if self._verbose_tools else 'OFF'}")
 
+    def action_handle_ctrl_c(self) -> None:
+        if self._quit_pending:
+            self.exit()
+            return
+        self._quit_pending = True
+        self._set_status("  Press Ctrl+C again to quit")
+        self.set_timer(3, self._reset_quit_pending)
+
+    def _reset_quit_pending(self) -> None:
+        self._quit_pending = False
+
     async def action_quit(self) -> None:
         self.exit()
 
@@ -1276,6 +1287,7 @@ class BookScoutTui(App[None]):
         self._palette_open = False
         self._palette_focus_idx = 0
         self._skip_palette = False
+        self._quit_pending = False
         with contextlib.suppress(Exception):
             self.query_one("#command_palette", Container).display = False
 
@@ -1301,6 +1313,7 @@ class BookScoutTui(App[None]):
         self._close_palette()
         inp = self._active_input()
         inp.value = f":{cmd} "
+        inp.action_end()
         inp.focus()
         self._skip_palette = False
 
