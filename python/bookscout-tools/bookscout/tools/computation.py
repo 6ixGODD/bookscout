@@ -38,6 +38,22 @@ _ALLOWED_MODULES = frozenset({
     "unicodedata",
     "cmath",
     "numbers",
+    # Scientific computing.
+    "numpy",
+    "scipy",
+    "scipy.stats",
+    "scipy.linalg",
+    "scipy.optimize",
+    "scipy.signal",
+    "scipy.sparse",
+    "scipy.spatial",
+    "scipy.special",
+    "scipy.integrate",
+    "scipy.interpolate",
+    "scipy.fft",
+    "scipy.ndimage",
+    "scipy.io",
+    "scipy.cluster",
 })
 
 
@@ -65,7 +81,8 @@ class WolframExecuteTool(
         except Exception as e:  # pylint: disable=broad-exception-caught
             return f"Error evaluating expression: {e}\nFor complex computations, try the python_execute tool instead."
 
-    def _evaluate(self, expr: str) -> str:
+    @staticmethod
+    def _evaluate(expr: str) -> str:
         """Evaluate a Wolfram-style expression locally.
 
         Handles common patterns by translating to Python/sympy.
@@ -208,8 +225,18 @@ class PythonExecuteTool(
         # Add allowed modules.
         for mod_name in _ALLOWED_MODULES:
             try:
+                top_level = mod_name.split(".")[0]
                 __import__(mod_name)
-                safe_globals[mod_name] = __import__(mod_name)
+                # __import__("scipy.stats") returns the top-level "scipy"
+                # module, so we traverse getattr to ensure the submodule
+                # is fully loaded into sys.modules, then store the
+                # top-level name only in the sandbox globals.
+                mod = __import__(top_level)
+                parts = mod_name.split(".")[1:]
+                for attr in parts:
+                    mod = getattr(mod, attr)
+                if top_level not in safe_globals:
+                    safe_globals[top_level] = __import__(top_level)
             except ImportError:
                 pass
 
