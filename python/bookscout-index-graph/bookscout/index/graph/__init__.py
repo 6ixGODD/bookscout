@@ -207,15 +207,29 @@ class GraphStore(LoggingMixin):
                     )
             await session.commit()
 
-    async def get_all_entities(self, book_id: str) -> list[Entity]:
+    async def get_all_entities(
+        self,
+        book_id: str,
+        *,
+        node_ids: list[str] | None = None,
+    ) -> list[Entity]:
         async with self._sqlite.session() as session:
             stmt = select(EntityModel).where(EntityModel.book_id == book_id)
+            if node_ids:
+                stmt = stmt.where(EntityModel.source_node_id.in_(node_ids))
             rows = (await session.execute(stmt)).scalars().all()
             return [self._row_to_entity(r) for r in rows]
 
-    async def get_all_relationships(self, book_id: str) -> list[Relationship]:
+    async def get_all_relationships(
+        self,
+        book_id: str,
+        *,
+        node_ids: list[str] | None = None,
+    ) -> list[Relationship]:
         async with self._sqlite.session() as session:
             stmt = select(RelationshipModel).where(RelationshipModel.book_id == book_id)
+            if node_ids:
+                stmt = stmt.where(RelationshipModel.source_node_id.in_(node_ids))
             rows = (await session.execute(stmt)).scalars().all()
             return [self._row_to_relationship(r) for r in rows]
 

@@ -99,7 +99,11 @@ class GraphFtsEntityTool(  # type: ignore[call-arg]
 class GetEntitiesTool(  # type: ignore[call-arg]
     BaseTool,
     name="get_entities",
-    description="List all entities in a book's knowledge graph. Returns entity names, types, tags, summaries.",
+    description=(
+        "List entities in a book's knowledge graph. Returns entity names, types, "
+        "tags, summaries. Prefer passing node_ids to limit results to specific "
+        "sections — omitting node_ids returns ALL entities (expensive)."
+    ),
 ):
     """Tool: get_entities."""
 
@@ -109,8 +113,12 @@ class GetEntitiesTool(  # type: ignore[call-arg]
     async def __call__(
         self,
         book_id: Annotated[str, Property(description="The book ID")],
+        node_ids: Annotated[
+            list[str] | None,
+            Property(description="Optional node IDs to filter entities by their source node."),
+        ] = None,
     ) -> str:
-        entities = await self._store.get_all_entities(book_id)
+        entities = await self._store.get_all_entities(book_id, node_ids=node_ids)
         return json.dumps(
             [
                 {
@@ -131,7 +139,11 @@ class GetEntitiesTool(  # type: ignore[call-arg]
 class GetRelationshipsTool(  # type: ignore[call-arg]
     BaseTool,
     name="get_relationships",
-    description="List all relationships in a book's knowledge graph. Returns relationship types, source/target entity IDs, summaries.",
+    description=(
+        "List relationships in a book's knowledge graph. Returns relationship "
+        "types, source/target entity IDs, summaries. Prefer passing node_ids to "
+        "limit results to specific sections."
+    ),
 ):
     """Tool: get_relationships."""
 
@@ -141,8 +153,12 @@ class GetRelationshipsTool(  # type: ignore[call-arg]
     async def __call__(
         self,
         book_id: Annotated[str, Property(description="The book ID")],
+        node_ids: Annotated[
+            list[str] | None,
+            Property(description="Optional node IDs to filter relationships by their source node."),
+        ] = None,
     ) -> str:
-        relationships = await self._store.get_all_relationships(book_id)
+        relationships = await self._store.get_all_relationships(book_id, node_ids=node_ids)
         return json.dumps(
             [
                 {

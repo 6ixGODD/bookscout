@@ -48,7 +48,12 @@ class GetSummaryTool(  # type: ignore[call-arg]
 class ListSummariesTool(  # type: ignore[call-arg]
     BaseTool,
     name="list_summaries",
-    description="List all summaries for a book. Returns an array of node summaries with their node IDs, titles, levels, and summary text.",
+    description=(
+        "List summaries for a book, optionally filtered to specific nodes. "
+        "Prefer passing node_ids to avoid returning all summaries at once — "
+        "use get_children or list_nodes_by_level first to discover node IDs, "
+        "then pass them here. Returns an array of {node_id, node_title, level, summary}."
+    ),
 ):
     """Tool: list_summaries."""
 
@@ -58,8 +63,14 @@ class ListSummariesTool(  # type: ignore[call-arg]
     async def __call__(
         self,
         book_id: Annotated[str, Property(description="The book ID")],
+        node_ids: Annotated[
+            list[str] | None,
+            Property(
+                description="Optional list of node IDs to filter summaries. If omitted, returns ALL summaries (expensive)."
+            ),
+        ] = None,
     ) -> str:
-        entries = await self._store.list_summaries(book_id)
+        entries = await self._store.list_summaries(book_id, node_ids=node_ids)
         return json.dumps(
             [
                 {
