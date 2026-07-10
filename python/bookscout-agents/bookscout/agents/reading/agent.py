@@ -10,6 +10,7 @@ The LLM is always stateless.
 
 from __future__ import annotations
 
+import json
 import typing as t
 
 from bookscout.agents.context import AgentContext
@@ -110,7 +111,7 @@ class ReadingAgent(ModeAgent):
         # Select model based on configured profiles.
         model = self.profiles.standard
 
-        options = CompletionOptions(model=model, temperature=0.2, max_tokens=1600)
+        options = CompletionOptions(model=model, temperature=0.2)
         response = await ctx.llm.chat_completion(
             [SystemMessage(content=prompt), *messages],
             tools=self.tools,
@@ -158,7 +159,7 @@ class ReadingAgent(ModeAgent):
         }
         ctx.extra["tool_call_status"] = []
 
-        options = CompletionOptions(model=model, temperature=0.2, max_tokens=1600, stream=True)
+        options = CompletionOptions(model=model, temperature=0.2, stream=True)
         full_messages: list[Message] = [SystemMessage(content=prompt), *messages]
 
         async def _gen() -> t.AsyncIterator[StreamEvent]:
@@ -208,6 +209,11 @@ class ReadingAgent(ModeAgent):
                         content = " ".join(str(c) for c in content)
                     tool_name = call_id_to_name.get(call_id, "")
                     full_args = "".join(call_id_to_args.get(call_id, []))
+                    parsed_args: dict[str, t.Any] = {}
+                    try:
+                        parsed_args = json.loads(full_args)
+                    except (json.JSONDecodeError, TypeError):
+                        parsed_args = {"_raw": full_args}
                     tool_calls.append({
                         "call_id": call_id,
                         "name": tool_name,
@@ -219,6 +225,8 @@ class ReadingAgent(ModeAgent):
                             s["status"] = "executed"
                             s["result_summary"] = summary
                             s["retrieval_stats"] = stats
+                            s["arguments"] = parsed_args
+                            s["result_text"] = str(content)
                             break
 
                 elif event_type == "response_complete":
