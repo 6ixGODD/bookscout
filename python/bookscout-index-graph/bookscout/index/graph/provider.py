@@ -4,41 +4,38 @@ from __future__ import annotations
 
 import typing as t
 
+from bookscout.doccompiler.index_provider import IndexContext
 from bookscout.doccompiler.index_provider import IndexProvider
 
 if t.TYPE_CHECKING:
-    import pathlib
-
-    from bookscout.books import BooksStore
+    from bookscout.doccompiler import Indexer
     from bookscout.index.graph import GraphIndexer
     from bookscout.index.graph import GraphStore
-    from bookscout.logging import Logger
+    from bookscout.tools import BaseTool
 
 
-def _indexer_factory(logger: Logger, books_store: BooksStore, **kw: t.Any):
+def _indexer_factory(ctx: IndexContext) -> Indexer:
     from bookscout.llm import ChatModel
 
-    from .__init__ import GraphIndexer
+    from . import GraphIndexer
 
     return GraphIndexer(
-        logger=logger,
-        books_store=books_store,
-        model=kw["llm"],
-        embedding=kw["embedding"],
-        vector_store=kw["vector_store"],
+        logger=ctx.logger,
+        books_store=ctx.books_store,
+        model=ctx.llm,
+        embedding=ctx.embedding,
+        vector_store=ctx.vector_store,
         estimate_token_fn=ChatModel.estimate_token,
     )
 
 
-# pylint: disable-next=unused-argument
-def _store_factory(db_path: pathlib.Path, logger: Logger, **kw: t.Any):  # noqa: ARG001
-    from .__init__ import GraphStore
+def _store_factory(ctx: IndexContext) -> GraphStore:
+    from . import GraphStore
 
-    return GraphStore(logger=logger, db_path=db_path)
+    return GraphStore(logger=ctx.logger, db_path=ctx.db_path)
 
 
-# pylint: disable-next=unused-argument
-def _tool_factory(indexer: GraphIndexer, store: GraphStore, **kw: t.Any):  # noqa: ARG001
+def _tool_factory(indexer: GraphIndexer, store: GraphStore, ctx: IndexContext) -> list[BaseTool]:  # noqa: ARG001
     from .tools import create_graph_tools
 
     return create_graph_tools(indexer, store)
