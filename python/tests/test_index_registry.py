@@ -161,3 +161,21 @@ def test_summary_provider_factory_signatures():
     assert "ctx" in sig_tool.parameters
     assert "indexer" in sig_tool.parameters
     assert "store" in sig_tool.parameters
+
+
+def test_chunk_provider_factory_signatures():
+    """Chunk provider factories should accept IndexContext-based signatures."""
+    import inspect
+
+    from bookscout.index.chunk.provider import INDEX_PROVIDER as CHUNK_PROVIDER
+
+    sig_indexer = inspect.signature(CHUNK_PROVIDER.indexer_factory)
+    assert "ctx" in sig_indexer.parameters
+
+    sig_store = inspect.signature(CHUNK_PROVIDER.store_factory)
+    assert "ctx" in sig_store.parameters
+
+    sig_tool = inspect.signature(CHUNK_PROVIDER.tool_factory)
+    assert "ctx" in sig_tool.parameters
+    assert "indexer" in sig_tool.parameters
+    assert "store" in sig_tool.parameters
