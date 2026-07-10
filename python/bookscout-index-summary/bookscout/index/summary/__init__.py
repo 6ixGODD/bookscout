@@ -12,6 +12,7 @@ the node's final summary (summary-of-summaries).
 
 from __future__ import annotations
 
+import asyncio
 import dataclasses
 import pathlib
 import typing as t
@@ -39,7 +40,7 @@ if t.TYPE_CHECKING:
 # Summary input budget: how many tokens of content we feed to the LLM per call.
 DEFAULT_SUMMARY_INPUT_BUDGET = 3000
 # Summary output budget: max tokens for the generated summary.
-DEFAULT_SUMMARY_OUTPUT_MAX_TOKENS = 512
+DEFAULT_SUMMARY_OUTPUT_MAX_TOKENS = 2048
 # When splitting content for summary-of-summaries, leave room for the prompt overhead.
 _PROMPT_OVERHEAD_TOKENS = 200
 
@@ -140,10 +141,18 @@ class SummaryStore(LoggingMixin, AsyncResourceMixin):
                 summary_text=row.summary_text,
             )
 
-    async def list_summaries(self, book_id: str) -> list[SummaryEntry]:
-        """List all summaries for a book."""
+    async def list_summaries(
+        self,
+        book_id: str,
+        *,
+        node_ids: list[str] | None = None,
+    ) -> list[SummaryEntry]:
+        """List summaries for a book, optionally filtered by node ids."""
         async with self._sqlite.session() as session:
             stmt = select(SummaryModel).where(SummaryModel.book_id == book_id)
+            if node_ids:
+                # WHERE book_id = ? AND node_id IN (?, ?, ...)
+                stmt = stmt.where(SummaryModel.node_id.in_(node_ids))
             rows = (await session.execute(stmt)).scalars().all()
             return [
                 SummaryEntry(
@@ -208,14 +217,10 @@ class SummaryIndexer(Indexer):
     ) -> IndexResult:
         """Build summaries for all nodes in a book's tree.
 
-        Args:
-            book_id: The book id.
-            workspace: The book workspace.
-            monitor: Optional progress Monitor for fine-grained reporting.
-            parent_id: Parent task id in the monitor.
-
-        Returns:
-            An :class:`IndexResult` with the count of summaries generated.
+        Processes nodes level-by-level from deepest to root.  All nodes at
+        the same level are independent (each depends only on its children,
+        which live at deeper levels and have already been summarised) and
+        are run concurrently via ``asyncio.gather``.
         """
         mtid = monitor.start("summarize", total=0, parent_id=parent_id) if monitor else None
 
@@ -229,18 +234,21 @@ class SummaryIndexer(Indexer):
             if monitor and mtid:
                 monitor.set_total(mtid, len(tree))
 
-            children_map: dict[str, list[BookNode]] = {}
-            for node in tree:
-                children_map.setdefault(node.parent_id, []).append(node)
-
-            root = tree[0] if tree else None
-            if root is None:
+            if not tree:
                 self._update_progress(status="done")
                 return IndexResult(index_type="summary", count=0, progress=self.progress)
 
+            children_map: dict[str, list[BookNode]] = {}
+            nodes_by_level: dict[int, list[BookNode]] = {}
+            for node in tree:
+                children_map.setdefault(node.parent_id, []).append(node)
+                nodes_by_level.setdefault(node.level, []).append(node)
+
             count = 0
-            async for node_id in self._post_order(root.id, tree):
-                node = next(n for n in tree if n.id == node_id)
+            _count_lock = asyncio.Lock()
+
+            async def _summarize_node(node: BookNode) -> int:
+                nonlocal count
                 children = children_map.get(node.id, [])
 
                 own_content = await self._books_store.read_node_content(node.id)
@@ -250,7 +258,6 @@ class SummaryIndexer(Indexer):
                     if child_entry and child_entry.summary_text:
                         child_summaries.append(f"[{child.title}] {child_entry.summary_text}")
 
-                # Build the full text to summarize.
                 if child_summaries:
                     full_text = (
                         f"Section: {node.title or '(untitled)'}\n\n"
@@ -265,13 +272,11 @@ class SummaryIndexer(Indexer):
                         f"Produce a concise summary of this section."
                     )
                 else:
-                    continue
+                    return 0
 
-                # Token-budget-aware summarization.
                 summary_text = await self._summarize_with_budget(full_text)
-
                 if not summary_text:
-                    continue
+                    return 0
 
                 await store.upsert_summary(
                     book_id=book_id,
@@ -280,16 +285,29 @@ class SummaryIndexer(Indexer):
                     level=node.level,
                     summary_text=summary_text,
                 )
-                count += 1
-                self._update_progress(processed=count)
+                async with _count_lock:
+                    count += 1
+                    self._update_progress(processed=count)
                 if monitor and mtid:
                     monitor.advance(mtid, 1)
                 self.logger.debug(
                     "summary generated",
                     node_id=node.id,
                     title=node.title,
+                    level=node.level,
                     summary_len=len(summary_text),
                 )
+                return 1
+
+            # Process deepest levels first — children before parents.
+            for level in sorted(nodes_by_level.keys(), reverse=True):
+                batch = nodes_by_level[level]
+                self.logger.debug(
+                    "summarizing level",
+                    level=level,
+                    count=len(batch),
+                )
+                await asyncio.gather(*(_summarize_node(n) for n in batch))
 
             self._update_progress(status="done")
             if monitor and mtid:
@@ -304,20 +322,13 @@ class SummaryIndexer(Indexer):
 
         If the text fits within the budget, summarize it directly.
         If it exceeds the budget, split into sub-fragments, summarize
-        each, then summarize the sub-summaries.
-
-        Args:
-            text: The text to summarize.
-
-        Returns:
-            The summary text.
+        each concurrently, then summarize the sub-summaries.
         """
 
         token_count = self._model.estimate_token(text)
         effective_budget = self._input_budget - _PROMPT_OVERHEAD_TOKENS
 
         if token_count <= effective_budget:
-            # Fits in one call.
             return await self._llm_summarize(text)
 
         # Need to split. Calculate how many fragments.
@@ -329,25 +340,16 @@ class SummaryIndexer(Indexer):
             budget=effective_budget,
         )
 
-        # Split the text into approximately equal fragments at paragraph boundaries.
         fragments = self._split_text(text, num_fragments, effective_budget)
 
-        # Summarize each fragment.
-        sub_summaries: list[str] = []
-        for i, fragment in enumerate(fragments):
-            summary = await self._llm_summarize(fragment)
-            if summary:
-                sub_summaries.append(summary)
-                self.logger.debug("sub-summary generated", fragment=i, length=len(summary))
+        # Summarize all fragments concurrently.
+        sub_summaries: list[str] = [s for s in await asyncio.gather(*(self._llm_summarize(f) for f in fragments)) if s]
 
         if not sub_summaries:
             return ""
-
-        # If only one sub-summary, return it directly.
         if len(sub_summaries) == 1:
             return sub_summaries[0]
 
-        # Summarize the sub-summaries.
         combined = "\n\n".join(sub_summaries)
         combined_prompt = (
             "The following are summaries of different parts of the same section. "
@@ -419,23 +421,6 @@ class SummaryIndexer(Indexer):
             fragments.append("\n\n".join(current))
 
         return fragments if fragments else [text]
-
-    async def _post_order(self, root_id: str, tree: list[BookNode]) -> t.AsyncIterator[str]:
-        """Yield node ids in post-order (children before parents)."""
-        children_map: dict[str, list[BookNode]] = {}
-        for node in tree:
-            children_map.setdefault(node.parent_id, []).append(node)
-
-        results: list[str] = []
-
-        async def _walk(node_id: str) -> None:
-            for child in children_map.get(node_id, []):
-                await _walk(child.id)
-            results.append(node_id)
-
-        await _walk(root_id)
-        for nid in results:
-            yield nid
 
 
 __all__ = [
