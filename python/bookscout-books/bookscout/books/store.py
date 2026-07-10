@@ -192,13 +192,14 @@ class BooksStore(LoggingMixin, AsyncResourceMixin):
             book_id: The book id.
         """
         async with self.sqlite.session() as session:
+            for model_cls in (BookNodeModel, IndexManifestModel):
+                nodes_stmt = select(model_cls).where(model_cls.book_id == book_id)
+                nodes = (await session.execute(nodes_stmt)).scalars().all()
+                for node in nodes:
+                    await session.delete(node)
             row = await session.get(BookModel, book_id)
             if row is not None:
                 await session.delete(row)
-            stmt = select(BookNodeModel).where(BookNodeModel.book_id == book_id)
-            nodes = (await session.execute(stmt)).scalars().all()
-            for node in nodes:
-                await session.delete(node)
             await session.commit()
         self.logger.info("book deleted", book_id=book_id)
 
@@ -551,7 +552,6 @@ class BooksStore(LoggingMixin, AsyncResourceMixin):
     ) -> None:
         """Insert or update a manifest row for (book_id, index_type)."""
         from bookscout.core.lib.utils import gen_id
-        from bookscout.core.lib.utils import utcnow_ts
 
         async with self.sqlite.session() as session:
             stmt = select(IndexManifestModel).where(
