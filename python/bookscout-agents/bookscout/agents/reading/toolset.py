@@ -5,6 +5,7 @@ from __future__ import annotations
 import pathlib
 import typing as t
 
+from bookscout.doccompiler.index_provider import IndexContext
 from bookscout.tools import BaseTool
 from bookscout.tools.toolset import Toolset
 
@@ -81,27 +82,29 @@ class ReadingAgentToolset(Toolset):
 
         for provider in active_providers:
             db_path = pathlib.Path(self.config.workspace_root) / "indexes" / f"{provider.db_path_name}.sqlite"
-            store = provider.store_factory(db_path=db_path, logger=self.logger)
+            ctx = IndexContext(
+                logger=self.logger,
+                books_store=self._books_store,
+                llm=self._llm,
+                embedding=self._embedding,
+                vector_store=vector_store,
+                db_path=db_path,
+            )
+            store = provider.store_factory(ctx)
             if hasattr(store, "startup"):
                 await store.startup()
             self._resources.append(store)
 
             if provider.index_type == "summary":
-                summary_tools = provider.tool_factory(indexer=None, store=store, logger=self.logger, db_path=db_path)
-                await self._startup_hidden_summary_stores(summary_tools)
-                tools.extend(summary_tools)
+                tools_list = provider.tool_factory(indexer=None, store=store, ctx=ctx)
+                await self._startup_hidden_summary_stores(tools_list)
+                tools.extend(tools_list)
             else:
-                indexer = provider.indexer_factory(
-                    logger=self.logger,
-                    books_store=self._books_store,
-                    llm=self._llm,
-                    embedding=self._embedding,
-                    vector_store=vector_store,
-                )
+                indexer = provider.indexer_factory(ctx)
                 if hasattr(indexer, "startup"):
                     await indexer.startup()
                 self._resources.append(indexer)
-                tools.extend(provider.tool_factory(indexer=indexer, store=store, logger=self.logger, db_path=db_path))
+                tools.extend(provider.tool_factory(indexer=indexer, store=store, ctx=ctx))
 
         self.internal_tools = tools  # pylint: disable=attribute-defined-outside-init
         await super().startup()
