@@ -196,12 +196,16 @@ def tui(
             help="Skip the selector and open a specific book id directly.",
         ),
     ] = None,
+    resume: t.Annotated[
+        str | None,
+        typer.Option("--resume", "-r", help="Resume a session: --resume for list, --resume <id> for specific"),
+    ] = None,
 ) -> None:
     """Launch the interactive Textual TUI."""
     bs_config = _resolve_config(config_file, set_overrides, data_dir, log_level, debug_file, workdir)
     from .tui import BookScoutTui
 
-    tui_app = BookScoutTui(bs_config, initial_book_id=book_id)
+    tui_app = BookScoutTui(bs_config, initial_book_id=book_id, resume_session_id=resume)
     with contextlib.suppress(KeyboardInterrupt):
         tui_app.run()
     os._exit(0)

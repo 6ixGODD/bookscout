@@ -43,6 +43,7 @@ if t.TYPE_CHECKING:
     from bookscout.agents.mode import StreamChunk
     from bookscout.books import Book
     from bookscout.doccompiler.task_manager import TaskProgress
+    from bookscout.repl.session_manager import Session
 
 
 class CommandInput(Input):
@@ -70,6 +71,20 @@ class CommandInput(Input):
             # then re-render the palette from the updated input value.
             await super()._on_key(event)
             app._render_palette()  # type: ignore[attr-defined]
+            return
+
+        if phase in ("session_select",) and event.key in ("up", "down"):
+            event.stop()
+            event.prevent_default()
+            if event.key == "up":
+                app._session_focus_idx = max(0, (app._session_focus_idx or 0) - 1)
+            elif event.key == "down":
+                n = len(getattr(app, "_session_list", []))
+                app._session_focus_idx = min(n - 1, (app._session_focus_idx or 0) + 1) if n else 0
+            if getattr(app, "_session_select_cross_book", False):
+                app._render_cross_book_session_list()  # type: ignore[attr-defined]
+            else:
+                app._render_session_list()  # type: ignore[attr-defined]
             return
 
         if phase in ("index_select", "builder_select") and event.key in ("up", "down", "space"):
@@ -237,10 +252,12 @@ class BookScoutTui(App[None]):
         config: BookScoutConfig,
         *,
         initial_book_id: str | None = None,
+        resume_session_id: str | None = None,
     ) -> None:
         super().__init__()
         self._config = config
         self._initial_book_id = initial_book_id
+        self._resume_session_id = resume_session_id
         self._repl_context: ReplContext | None = None
         self._books: list[Book] = []
         self._selected_book: Book | None = None
@@ -262,6 +279,10 @@ class BookScoutTui(App[None]):
         self._post_compile_target = "select"
         self._palette_open = False
         self._session_id: str | None = None
+        self._session_list: list[Session] = []
+        self._session_focus_idx: int = 0
+        self._current_session: Session | None = None
+        self._session_select_cross_book: bool = False
 
     def compose(self) -> ComposeResult:
         with Container(id="header"):
@@ -324,6 +345,18 @@ class BookScoutTui(App[None]):
         assert ctx is not None
         self._books = await ctx.list_books()
 
+        if self._resume_session_id:
+            session = await ctx.session_manager.get(self._resume_session_id)
+            if session is not None:
+                book = next((b for b in self._books if b.id == session.book_id), None)
+                if book is not None:
+                    self._selected_book = book
+                    self._session_id = session.session_id
+                    self._current_session = session
+                    await self._enter_chat_with_session(book, session)
+                    return
+            self._set_status(f"  session not found: {self._resume_session_id}")
+
         if self._initial_book_id:
             book = next((b for b in self._books if b.id == self._initial_book_id), None)
             if book is not None:
@@ -348,7 +381,7 @@ class BookScoutTui(App[None]):
     def _focus_input(self) -> None:
         """Keep focus on the input box at all times."""
         with contextlib.suppress(Exception):
-            if self.phase in ("select", "index_select", "builder_select"):
+            if self.phase in ("select", "index_select", "builder_select", "session_select"):
                 self.query_one("#select_input", Input).focus()
             elif self.phase == "chat":
                 self.query_one("#chat_input", Input).focus()
@@ -357,6 +390,8 @@ class BookScoutTui(App[None]):
     def _header_hint_for_phase(phase: str) -> str:
         if phase == "select":
             return "type : for commands"
+        if phase == "session_select":
+            return "type : for commands    Enter: resume    :new: create    :back: return to books"
         if phase == "index_select":
             return "type : for commands    Space/Enter  toggle    Enter/:go  next"
         if phase == "builder_select":
@@ -381,6 +416,7 @@ class BookScoutTui(App[None]):
     def _set_panel(self, phase: str) -> None:
         panel_map = {
             "select": "select_panel",
+            "session_select": "select_panel",
             "index_select": "index_select_panel",
             "builder_select": "builder_select_panel",
             "compile": "compile_panel",
@@ -398,7 +434,7 @@ class BookScoutTui(App[None]):
                 self.query_one(f"#{panel_id}", Container).display = panel_id == active
         # Show the right input.
         with contextlib.suppress(Exception):
-            self.query_one("#select_input", Input).display = phase in ("select", "index_select", "builder_select")
+            self.query_one("#select_input", Input).display = phase in ("select", "session_select", "index_select", "builder_select")
             self.query_one("#chat_input", Input).display = phase in ("chat", "compile")
 
     def _set_status(self, text: str) -> None:
@@ -479,14 +515,16 @@ class BookScoutTui(App[None]):
     async def on_input_submitted(self, event: Input.Submitted) -> None:
         self._skip_palette = False
         if event.input.id == "select_input":
-            if self.phase == "index_select":
+            if self.phase == "session_select":
+                await self._handle_session_select_input(event.value.strip())
+            elif self.phase == "index_select":
                 self._handle_index_select_input(event.value.strip())
             elif self.phase == "builder_select":
                 self._handle_builder_select_input(event.value.strip())
             else:
                 await self._handle_select_input(event.value.strip())
         elif event.input.id == "chat_input":
-            self._handle_chat_input(event.value.strip())
+            await self._handle_chat_input(event.value.strip())
 
     @staticmethod
     def _clean_path(value: str) -> str:
@@ -508,6 +546,19 @@ class BookScoutTui(App[None]):
             return
         if low == ":back":
             self._set_status("  already at book list")
+            return
+        if low == ":resume":
+            mgr = self._repl_context.session_manager
+            all_sessions = await mgr.list_all()
+            if not all_sessions:
+                self._set_status("  no sessions to resume")
+                return
+            self._session_list = all_sessions
+            self._session_focus_idx = 0
+            self._session_select_cross_book = True
+            self._render_cross_book_session_list()
+            self.phase = "session_select"
+            self._set_status(f"  {len(all_sessions)} session(s) total")
             return
         # :book N 閳?enter chat for a single book.
         if low.startswith(":book") or low.startswith(":b "):
@@ -831,28 +882,180 @@ class BookScoutTui(App[None]):
             self._set_status("  chat unavailable: LLM/embedding not configured.")
             return
         self._selected_book = book
-        # Create a per-session session via the SessionManager.
-        try:
-            session = await self._repl_context.session_manager.create(
-                book_id=book.id,
-                name=f"{book.title or 'untitled'}-default",
-                kind="chat",
-            )
+
+        mgr = self._repl_context.session_manager
+        sessions = await mgr.list_by_book(book.id)
+        if sessions:
+            self._enter_session_select(book, sessions)
+        else:
+            import random
+            import string
+            suffix = "".join(random.choices(string.ascii_lowercase + string.digits, k=6))
+            name = f"{(book.title or 'untitled')[:20]}-{suffix}"
+            session = await mgr.create(book_id=book.id, name=name, kind="chat")
+            self._current_session = session
             self._session_id = session.session_id
-        except Exception as e:
-            self._set_status(f"  failed to create session: {e}")
-            return
+            await self._enter_chat_with_session(book, session)
+
+    # -- Session select phase --
+    def _enter_session_select(self, book: Book, sessions: list[Session]) -> None:
+        self._session_list = sessions
+        self._session_focus_idx = 0
+        self._session_select_cross_book = False
+        self._render_session_list()
+        self.phase = "session_select"
+        self._set_status(f"  {len(sessions)} session(s) for {book.title or '(untitled)'}")
+        self._focus_input()
+
+    def _render_session_list(self) -> None:
+        out = Text()
+        for idx, sess in enumerate(self._session_list):
+            if idx > 0:
+                out.append(Text("\n"))
+            focused = idx == self._session_focus_idx
+            style = "bold white" if focused else "#888888"
+            import datetime as _dt
+            ts = _dt.datetime.fromtimestamp(sess.updated_at).strftime("%Y-%m-%d %H:%M")
+            out.append(Text(f"  {idx+1:>2}  ", style=style))
+            out.append(Text(f"{sess.name[:30]:<30}", style=style))
+            out.append(Text(f"  {sess.kind:<10}", style="#666666" if focused else "#444444"))
+            out.append(Text(f"  {sess.turn_count:>4} turns", style="#666666" if focused else "#444444"))
+            out.append(Text(f"  {ts}", style="#444444"))
+        out.append(Text("\n\n"))
+        out.append(Text("  Enter: resume    :new: create    :back: return to books", style="#666666"))
+        lv = self.query_one("#books_list", ListView)
+        lv.clear()
+        lv.append(ListItem(Static(out)))
+
+    def _render_cross_book_session_list(self) -> None:
+        out = Text()
+        for idx, sess in enumerate(self._session_list):
+            if idx > 0:
+                out.append(Text("\n"))
+            focused = idx == self._session_focus_idx
+            style = "bold white" if focused else "#888888"
+            import datetime as _dt
+            ts = _dt.datetime.fromtimestamp(sess.updated_at).strftime("%Y-%m-%d %H:%M")
+            book_title = "?"
+            book = next((b for b in self._books if b.id == sess.book_id), None)
+            if book is not None:
+                book_title = book.title or "(untitled)"
+            out.append(Text(f"  {idx+1:>2}  ", style=style))
+            out.append(Text(f"{sess.name[:25]:<25}", style=style))
+            out.append(Text(f"  [{book_title[:20]:<20}]", style="#666666" if focused else "#444444"))
+            out.append(Text(f"  {sess.turn_count:>4} turns", style="#666666" if focused else "#444444"))
+            out.append(Text(f"  {ts}", style="#444444"))
+        out.append(Text("\n\n"))
+        out.append(Text("  Enter: resume    :back: return to books", style="#666666"))
+        lv = self.query_one("#books_list", ListView)
+        lv.clear()
+        lv.append(ListItem(Static(out)))
+
+    async def _enter_chat_with_session(self, book: Book, session: Session) -> None:
+        self._current_session = session
+        self._session_id = session.session_id
         self._chat_markdown = ""
         self.query_one("#chat_log", Markdown).update(self._chat_markdown)
         self.phase = "chat"
         title = book.title or "(untitled)"
         author = book.author or "Unknown"
+        BookScoutTui._set_console_title(f"{title} - {author}")
+        hint = f"{title}  by {author}  [{session.name}]"
         with contextlib.suppress(Exception):
-            hint = f"{title}  by {author}"
             self.query_one("#header_hint", Static).update(hint)
-        BookScoutTui._set_console_title(f"BookScout - {title}")
-        self._set_status(f"  {book.title or '(untitled)'}")
+        self._set_status(f"  {session.name}")
         self._focus_input()
+
+    def _find_book_for_session(self, session: Session) -> Book | None:
+        return next((b for b in self._books if b.id == session.book_id), None)
+
+    async def _handle_session_select_input(self, text: str) -> None:
+        self.query_one("#select_input", Input).value = ""
+        low = text.lower().strip()
+
+        if low == "" or low in (":go", ":ok"):
+            if not self._session_list:
+                self._set_status("  no sessions")
+                return
+            idx = min(self._session_focus_idx, len(self._session_list) - 1)
+            session = self._session_list[idx]
+            book = self._find_book_for_session(session)
+            if book is None:
+                self._set_status(f"  book not found: {session.book_id}")
+                return
+            self._selected_book = book
+            await self._enter_chat_with_session(book, session)
+            return
+
+        if not low.startswith(":"):
+            self._set_status("  Unknown command (commands start with `:`)")
+            return
+
+        if low == ":new":
+            if self._selected_book is None and self._session_list:
+                self._selected_book = self._find_book_for_session(self._session_list[0])
+            if self._selected_book is None:
+                self._set_status("  no book selected; use :back then :book N first")
+                return
+            import random
+            import string
+            suffix = "".join(random.choices(string.ascii_lowercase + string.digits, k=6))
+            name = f"{(self._selected_book.title or 'untitled')[:20]}-{suffix}"
+            mgr = self._repl_context.session_manager
+            session = await mgr.create(book_id=self._selected_book.id, name=name, kind="chat")
+            self._session_id = session.session_id
+            self._current_session = session
+            await self._enter_chat_with_session(self._selected_book, session)
+            return
+
+        if low.startswith(":session new"):
+            parts = text.split(None, 2)
+            name = parts[2].strip() if len(parts) > 2 else None
+            if not name:
+                import random
+                import string
+                suffix = "".join(random.choices(string.ascii_lowercase + string.digits, k=6))
+                name = f"{(self._selected_book.title or 'untitled')[:20]}-{suffix}" if self._selected_book else f"session-{suffix}"
+            book_id = self._selected_book.id if self._selected_book else (self._session_list[0].book_id if self._session_list else None)
+            if book_id is None:
+                self._set_status("  no book selected; use :back then :book N first")
+                return
+            mgr = self._repl_context.session_manager
+            session = await mgr.create(book_id=book_id, name=name, kind="chat")
+            book = self._find_book_for_session(session)
+            if book is None:
+                self._set_status(f"  book not found: {book_id}")
+                return
+            self._selected_book = book
+            self._session_id = session.session_id
+            self._current_session = session
+            await self._enter_chat_with_session(book, session)
+            return
+
+        if low == ":resume":
+            mgr = self._repl_context.session_manager
+            all_sessions = await mgr.list_all()
+            if not all_sessions:
+                self._set_status("  no sessions to resume")
+                return
+            self._session_list = all_sessions
+            self._session_focus_idx = 0
+            self._session_select_cross_book = True
+            self._render_cross_book_session_list()
+            self._set_status(f"  {len(all_sessions)} session(s) total")
+            return
+
+        if low in (":back", ":cancel", ":select"):
+            self.phase = "select"
+            self._refresh_books_list()
+            self._set_status(f"  {len(self._books)} book(s)")
+            return
+
+        if low in (":q", ":quit", ":exit"):
+            self.exit()
+            return
+
+        self._set_status(f"  Unknown command: {text}")
 
     # -- Compile phase --
     async def _start_compile(
@@ -1005,7 +1208,7 @@ class BookScoutTui(App[None]):
         self._focus_input()
 
     # -- Chat phase --
-    def _handle_chat_input(self, text: str) -> None:
+    async def _handle_chat_input(self, text: str) -> None:
         if self.phase == "compile":
             if text.lower() in (":q", ":quit", ":exit"):
                 self.exit()
@@ -1091,6 +1294,62 @@ class BookScoutTui(App[None]):
             )  # type: ignore[arg-type]
             return
 
+        if low == ":resume":
+            mgr = self._repl_context.session_manager
+            all_sessions = await mgr.list_all()
+            if not all_sessions:
+                self._set_status("  no sessions to resume")
+                return
+            self._session_list = all_sessions
+            self._session_focus_idx = 0
+            self._session_select_cross_book = True
+            self._render_cross_book_session_list()
+            self.phase = "session_select"
+            self._set_status(f"  {len(all_sessions)} session(s) total")
+            return
+
+        if low.startswith(":rename "):
+            parts = text.split(None, 1)
+            if len(parts) < 2:
+                self._set_status("  usage: :rename <NAME>")
+                return
+            new_name = parts[1].strip()
+            if self._current_session:
+                await self._repl_context.session_manager.rename(self._current_session.session_id, new_name)
+                self._current_session = await self._repl_context.session_manager.get(self._current_session.session_id)
+                self._set_status(f"  renamed to: {new_name}")
+            return
+
+        if low.startswith(":session new "):
+            parts = text.split(None, 2)
+            name = parts[2].strip() if len(parts) > 2 else None
+            if not name:
+                import random
+                import string
+                suffix = "".join(random.choices(string.ascii_lowercase + string.digits, k=6))
+                name = f"{(self._selected_book.title or 'untitled')[:20]}-{suffix}"
+            if self._selected_book is None:
+                self._set_status("  no book selected")
+                return
+            mgr = self._repl_context.session_manager
+            session = await mgr.create(book_id=self._selected_book.id, name=name, kind="chat")
+            self._session_id = session.session_id
+            self._current_session = session
+            await self._enter_chat_with_session(self._selected_book, session)
+            return
+
+        if low == ":session list":
+            assert self._selected_book is not None
+            sessions = await self._repl_context.session_manager.list_by_book(self._selected_book.id)
+            lines = ["**Sessions for this book:**"]
+            for s in sessions:
+                lines.append(f"- {s.name} ({s.kind}, {s.turn_count} turns)")
+            self._chat_markdown += "\n" + "\n".join(lines) + "\n\n"
+            log = self.query_one("#chat_log", Markdown)
+            await log.update(self._chat_markdown)
+            log.scroll_end(animate=False)
+            return
+
         if low.startswith(":"):
             self._set_status(f"  Unknown chat command: {text}")
             return
@@ -1135,12 +1394,16 @@ class BookScoutTui(App[None]):
         self._start_spinner("thinking...")
         self._streaming_buffer = []
         self._streaming_started = False
+        response_text_parts: list[str] = []
         try:
             async for chunk in self._repl_context.chat(
                 self._selected_book.id,
                 self._session_id,
                 user_input,
             ):
+                if chunk.kind == "text":
+                    delta = chunk.data if isinstance(chunk.data, str) else str(chunk.data)
+                    response_text_parts.append(delta)
                 self._handle_chunk(chunk)
         except Exception as e:
             self._chat_markdown += f"\n**ERROR:** {e}\n\n"
@@ -1149,6 +1412,14 @@ class BookScoutTui(App[None]):
             self._flush_streaming()
             self._chat_busy = False
             self._stop_spinner()
+            # Update session record.
+            if self._current_session and self._repl_context:
+                response_text = "".join(response_text_parts)
+                await self._repl_context.session_manager.update_after_turn(
+                    self._current_session.session_id,
+                    user_input=user_input,
+                    response_text=response_text,
+                )
             self._set_status(f"  {self._selected_book.title or '(untitled)'}")
             self._focus_input()
 
@@ -1313,18 +1584,23 @@ class BookScoutTui(App[None]):
 
     # -- Command palette --
     _COMMANDS: list[tuple[str, str, tuple[str, ...]]] = [
-        ("back", "Return to the book list", ("chat", "index_select", "builder_select")),
+        ("back", "Return to the book list", ("chat", "session_select", "index_select", "builder_select")),
         ("book", "Open book N in chat: :book N", ("select",)),
         ("bottom", "Scroll to the bottom of the chat", ("chat",)),
         ("clear", "Clear the chat log", ("chat",)),
         ("compact", "Manually compact conversation history", ("chat",)),
-        ("quit", "Exit BookScout", ("select", "chat", "compile", "index_select", "builder_select")),
+        ("quit", "Exit BookScout", ("select", "chat", "compile", "session_select", "index_select", "builder_select")),
         ("compile", "Compile a new book from a source file", ("select",)),
         ("delete", "Delete book N: :delete N", ("select",)),
         ("addindex", "Build an index for book N: :addindex N <type>", ("select", "chat")),
         ("rmindex", "Remove an index from book N: :rmindex N <type>", ("select", "chat")),
         ("go", "Confirm and proceed", ("index_select", "builder_select")),
         ("cancel", "Cancel and go back", ("index_select", "builder_select")),
+        ("resume", "Resume a previous session", ("select", "chat", "session_select")),
+        ("rename", "Rename current session: :rename <NAME>", ("chat",)),
+        ("session new", "Create a new session: :session new <name>", ("chat", "session_select")),
+        ("session list", "List sessions for current book", ("chat",)),
+        ("new", "Create a new session for the current book", ("session_select",)),
     ]
 
     def _palette_commands(self) -> list[tuple[str, str]]:
