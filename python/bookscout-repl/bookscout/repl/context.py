@@ -435,9 +435,22 @@ class ReplContext(LoggingMixin, AsyncResourceMixin):
         if not self.has_chat:
             return None
 
+        from bookscout.agents.reading.agent import READING_SYSTEM_PROMPT
         from bookscout.agents.reading.config import ReadingLLMProfiles
         from bookscout.agents.reading.config import ReadingModeConfig
         from bookscout.agents.reading.mode import ReadingMode
+
+        # Build the skill system.
+        from .prompt_builder import PromptBuilder
+        from .skill_loader import SkillLoader
+
+        skill_loader = SkillLoader(self._workdir, self._config.skills)
+        soul_path = self._workdir / "SOUL.md"
+        prompt = PromptBuilder(
+            skill_descriptions=skill_loader.list_skills(),
+            soul_path=soul_path,
+            base_system_prompt=READING_SYSTEM_PROMPT,
+        ).build()
 
         book_dir = self._data_dir / book_id
         book_dir.mkdir(parents=True, exist_ok=True)
@@ -463,6 +476,8 @@ class ReplContext(LoggingMixin, AsyncResourceMixin):
             book_id=book_id,
             registry=self._registry,
             books_store=self._books_store,
+            system_prompt=prompt,
+            skill_loader=skill_loader,
         )
         await mode.startup()
         self._modes[session_id] = mode

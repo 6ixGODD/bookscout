@@ -87,10 +87,11 @@ class ReadingAgent(ModeAgent):
         toolset: Toolset,
         profiles: ReadingLLMProfiles | None = None,
         logger: Logger,
+        instructions: str | None = None,
     ) -> None:
         super().__init__(
             name=name,
-            instructions=READING_SYSTEM_PROMPT,
+            instructions=instructions or READING_SYSTEM_PROMPT,
             toolset=toolset,
             logger=logger,
         )

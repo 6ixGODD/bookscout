@@ -49,6 +49,8 @@ class ReadingMode(Mode):
         book_id: str,
         registry: t.Any,
         books_store: BooksStore,
+        system_prompt: str | None = None,
+        skill_loader: t.Any | None = None,
     ) -> None:
         self.config = config
         self._session_repo: ReadingSessionRepository | None = None
@@ -60,8 +62,9 @@ class ReadingMode(Mode):
             book_id=book_id,
             registry=registry,
             books_store=books_store,
+            skill_loader=skill_loader,
         )
-        agent = ReadingAgent(toolset=toolset, profiles=config.llm_profiles, logger=logger)
+        agent = ReadingAgent(toolset=toolset, profiles=config.llm_profiles, logger=logger, instructions=system_prompt)
         super().__init__(
             name="reading",
             agents={agent.name: agent},

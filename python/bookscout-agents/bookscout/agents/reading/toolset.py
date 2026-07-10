@@ -35,6 +35,7 @@ class ReadingAgentToolset(Toolset):
         book_id: str,
         registry: t.Any,
         books_store: BooksStore,
+        skill_loader: t.Any | None = None,
     ) -> None:
         super().__init__(
             name="reading_retrieval",
@@ -49,6 +50,7 @@ class ReadingAgentToolset(Toolset):
         self._registry = registry
         self._books_store = books_store
         self._resources: list[t.Any] = []
+        self._skill_loader = skill_loader
 
     async def startup(self) -> None:
         from bookscout.books.tools import create_ontology_tools
@@ -62,7 +64,13 @@ class ReadingAgentToolset(Toolset):
         # 2. Computation tools (always available).
         tools.extend(create_computation_tools())
 
-        # 3. Index-driven tools — only for indexes this book has built.
+        # 3. Skill fetch tool (only if skill loader is available).
+        if self._skill_loader is not None:
+            from bookscout.tools.skill_fetch import SkillFetchTool
+
+            tools.append(SkillFetchTool(self._skill_loader))
+
+        # 4. Index-driven tools — only for indexes this book has built.
         built_types = await self._books_store.list_index_types(self._book_id)
         active_providers = [p for p in self._registry.all() if p.index_type in built_types]
 
