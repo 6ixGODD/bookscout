@@ -93,6 +93,8 @@ class ReplContext(LoggingMixin, AsyncResourceMixin):
         self._registry: IndexRegistry | None = None
         self._monitor: Monitor | None = None
         self._session_manager: SessionManager | None = None
+        self._skill_loader: t.Any | None = None
+        self._system_prompt: str | None = None
 
     async def startup(self) -> None:
         """Initialize all resources from config.
@@ -215,6 +217,21 @@ class ReplContext(LoggingMixin, AsyncResourceMixin):
 
         self._session_manager = SessionManager(workdir=self._workdir, logger=self.logger)
         await self._session_manager.startup()
+
+        # Shared skill loader + system prompt (built once, reused by all sessions).
+        from .prompt_builder import PromptBuilder
+        from .skill_loader import SkillLoader
+
+        self._skill_loader = SkillLoader(self._workdir, self._config.skills)
+        soul_path = self._workdir / "SOUL.md"
+        if self.has_chat:
+            from bookscout.agents.reading.agent import READING_SYSTEM_PROMPT
+
+            self._system_prompt = PromptBuilder(
+                skill_descriptions=self._skill_loader.list_skills(),
+                soul_path=soul_path,
+                base_system_prompt=READING_SYSTEM_PROMPT,
+            ).build()
 
         # Bootstrap manifest from existing index files (idempotent migration).
         await self._bootstrap_manifest_from_files()
@@ -435,22 +452,13 @@ class ReplContext(LoggingMixin, AsyncResourceMixin):
         if not self.has_chat:
             return None
 
-        from bookscout.agents.reading.agent import READING_SYSTEM_PROMPT
         from bookscout.agents.reading.config import ReadingLLMProfiles
         from bookscout.agents.reading.config import ReadingModeConfig
         from bookscout.agents.reading.mode import ReadingMode
 
-        # Build the skill system.
-        from .prompt_builder import PromptBuilder
-        from .skill_loader import SkillLoader
-
-        skill_loader = SkillLoader(self._workdir, self._config.skills)
-        soul_path = self._workdir / "SOUL.md"
-        prompt = PromptBuilder(
-            skill_descriptions=skill_loader.list_skills(),
-            soul_path=soul_path,
-            base_system_prompt=READING_SYSTEM_PROMPT,
-        ).build()
+        # Use shared skill loader and system prompt (built once in startup).
+        skill_loader = self._skill_loader
+        prompt = self._system_prompt
 
         book_dir = self._data_dir / book_id
         book_dir.mkdir(parents=True, exist_ok=True)

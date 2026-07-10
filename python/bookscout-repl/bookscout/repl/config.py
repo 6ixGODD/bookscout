@@ -182,8 +182,8 @@ class BookScoutConfig(BaseSettings):
     def resolved_data_dir(self) -> pathlib.Path:
         """Resolve data_dir, defaulting to {workdir}/data."""
         if self.data_dir:
-            return pathlib.Path(self.data_dir)
-        return pathlib.Path(self.workdir) / "data"
+            return pathlib.Path(self.data_dir).expanduser().resolve()
+        return self.resolved_workdir / "data"
 
     @property
     def resolved_workdir(self) -> pathlib.Path:

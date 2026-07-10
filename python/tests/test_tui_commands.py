@@ -429,4 +429,5 @@ def test_config_workdir_default() -> None:
 
 def test_config_resolved_data_dir() -> None:
     config = BookScoutConfig(workdir="/tmp/test_bs")
-    assert str(config.resolved_data_dir) == str(pathlib.Path("/tmp/test_bs/data"))
+    # resolved_data_dir falls back to resolved_workdir/data (with expanduser + resolve).
+    assert config.resolved_data_dir == config.resolved_workdir / "data"
