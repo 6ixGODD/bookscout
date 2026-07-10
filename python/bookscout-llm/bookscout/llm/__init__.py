@@ -9,6 +9,7 @@ implementations.  Concrete backends live in :mod:`bookscout.llm.openai` and
 from __future__ import annotations
 
 import abc
+import asyncio
 import typing as t
 
 from bookscout.core.lib.stream import AsyncStream
@@ -127,6 +128,7 @@ class ChatModel(
     def __init__(self, logger: Logger, config: LLMConfig) -> None:
         super().__init__(logger=logger)
         self.config = config
+        self._concurrency_semaphore = asyncio.Semaphore(config.max_concurrency)
         self._stateless = config.stateless
         # In stateless mode, skip all local persistence.
         self.sqlite: SQLite | None = None
@@ -369,7 +371,8 @@ class ChatModel(
                 provider_messages = self._apply_cache_control(provider_messages)
 
             start_time = utcnow_ts()
-            raw = await self._complete(provider_messages, provider_tools, opts)
+            async with self._concurrency_semaphore:
+                raw = await self._complete(provider_messages, provider_tools, opts)
             response = self._convert_response(raw)
 
             elapsed = utcnow_ts() - start_time
@@ -680,7 +683,8 @@ class ChatModel(
                 message_count=len(all_messages),
             )
 
-            raw = await self._complete(provider_messages, provider_tools, opts)
+            async with self._concurrency_semaphore:
+                raw = await self._complete(provider_messages, provider_tools, opts)
             response = self._convert_response(raw)
 
             # Persist assistant message

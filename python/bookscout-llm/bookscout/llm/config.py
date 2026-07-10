@@ -209,3 +209,13 @@ class LLMConfig(BaseModel):
             "is needed."
         ),
     )
+
+    max_concurrency: int = Field(
+        default=10,
+        description=(
+            "Maximum number of concurrent LLM API calls allowed across all "
+            "callers. An ``asyncio.Semaphore`` enforces this limit "
+            "transparently — callers that exceed the limit wait "
+            "asynchronously until a slot frees up."
+        ),
+    )
