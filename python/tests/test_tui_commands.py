@@ -385,6 +385,7 @@ async def test_chat_path_no_longer_triggers_compile() -> None:
     async with drive(app) as pilot:
         # Force into chat phase with a selected book (skip _enter_chat guards).
         app._selected_book = Book.new(book_id="b1", title="First", author="AuthA")
+        app._session_id = "test_sess"
         app.phase = "chat"
         await pilot.pause()
         _chat_input(app).value = "my.epub"

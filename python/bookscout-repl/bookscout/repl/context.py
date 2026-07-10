@@ -413,20 +413,25 @@ class ReplContext(LoggingMixin, AsyncResourceMixin):
         db_path = ws.index_db_path(db_name)
         db_path.unlink(missing_ok=True)
         await self.books_store.set_index_status(book_id, index_type, "removed")
-        # Invalidate cached mode so next chat rebuilds toolset without this index.
-        self._modes.pop(book_id, None)
+        # Invalidate any cached modes for this book (sessions may be keyed by session_id).
+        keys_to_pop = [sid for sid, mode in self._modes.items() if mode.config.book_id == book_id]
+        for sid in keys_to_pop:
+            self._modes.pop(sid, None)
 
     def get_task_progress(self, task_id: str) -> TaskProgress | None:
         """Poll progress for a running task."""
         return self.task_manager.get_progress(task_id)
 
-    async def get_or_create_mode(self, book_id: str) -> ReadingMode | None:
-        """Get (or lazily create) the :class:`ReadingMode` for a book.
+    async def get_or_create_mode(self, book_id: str, session_id: str) -> ReadingMode | None:
+        """Get (or lazily create) the :class:`ReadingMode` for a session.
+
+        Each session gets its own ``reading_mode_<session_id>.sqlite``,
+        isolated from other sessions for the same book.
 
         Returns ``None`` if the LLM or embedding was not configured.
         """
-        if book_id in self._modes:
-            return self._modes[book_id]
+        if session_id in self._modes:
+            return self._modes[session_id]
         if not self.has_chat:
             return None
 
@@ -435,11 +440,13 @@ class ReplContext(LoggingMixin, AsyncResourceMixin):
         from bookscout.agents.reading.mode import ReadingMode
 
         book_dir = self._data_dir / book_id
+        book_dir.mkdir(parents=True, exist_ok=True)
+        session_db = book_dir / f"reading_mode_{session_id}.sqlite"
         cm = self._config.chatmodel
         config = ReadingModeConfig(
             books_base_path=self._data_dir,
             book_id=book_id,
-            db_uri=f"sqlite+aiosqlite:///{book_dir / 'reading_mode.sqlite'}",
+            db_uri=f"sqlite+aiosqlite:///{session_db}",
             books_db_base_path=self._data_dir,
             lancedb_uri=str(self._data_dir / "lancedb"),
             llm_profiles=ReadingLLMProfiles(
@@ -458,7 +465,7 @@ class ReplContext(LoggingMixin, AsyncResourceMixin):
             books_store=self._books_store,
         )
         await mode.startup()
-        self._modes[book_id] = mode
+        self._modes[session_id] = mode
         return mode
 
     def make_agent_context(self, book_id: str) -> AgentContext:
@@ -472,6 +479,7 @@ class ReplContext(LoggingMixin, AsyncResourceMixin):
     async def chat(
         self,
         book_id: str,
+        session_id: str,
         user_input: str,
     ) -> t.AsyncIterator[StreamChunk]:
         """Stream chat chunks for a user turn.
@@ -479,7 +487,7 @@ class ReplContext(LoggingMixin, AsyncResourceMixin):
         Yields :class:`~bookscout.agents.mode.StreamChunk` instances.
         Raises :class:`RuntimeError` if chat is unavailable.
         """
-        mode = await self.get_or_create_mode(book_id)
+        mode = await self.get_or_create_mode(book_id, session_id)
         if mode is None:
             raise RuntimeError("Cannot create reading mode (missing LLM or embedding)")
         ctx = self.make_agent_context(book_id)

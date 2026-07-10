@@ -255,6 +255,7 @@ class BookScoutTui(App[None]):
         self._chat_markdown: str = ""
         self._post_compile_target = "select"
         self._palette_open = False
+        self._session_id: str | None = None
 
     def compose(self) -> ComposeResult:
         with Container(id="header"):
@@ -457,15 +458,15 @@ class BookScoutTui(App[None]):
 
     # -- Select phase --
     @on(ListView.Selected)
-    def _book_selected(self, event: ListView.Selected) -> None:
+    async def _book_selected(self, event: ListView.Selected) -> None:
         if event.list_view.id != "books_list":
             return
         idx = event.list_view.index
         if idx is None or idx >= len(self._books):
             return
-        self._enter_chat(self._books[idx])
+        await self._enter_chat(self._books[idx])
 
-    def on_input_submitted(self, event: Input.Submitted) -> None:
+    async def on_input_submitted(self, event: Input.Submitted) -> None:
         self._skip_palette = False
         if event.input.id == "select_input":
             if self.phase == "index_select":
@@ -473,7 +474,7 @@ class BookScoutTui(App[None]):
             elif self.phase == "builder_select":
                 self._handle_builder_select_input(event.value.strip())
             else:
-                self._handle_select_input(event.value.strip())
+                await self._handle_select_input(event.value.strip())
         elif event.input.id == "chat_input":
             self._handle_chat_input(event.value.strip())
 
@@ -484,7 +485,7 @@ class BookScoutTui(App[None]):
             value = value[1:-1]
         return value.strip()
 
-    def _handle_select_input(self, value: str) -> None:
+    async def _handle_select_input(self, value: str) -> None:
         if not value:
             return
         self.query_one("#select_input", Input).value = ""
@@ -513,7 +514,7 @@ class BookScoutTui(App[None]):
                 return
             idx = int(arg) - 1
             if 0 <= idx < len(self._books):
-                self._enter_chat(self._books[idx])
+                await self._enter_chat(self._books[idx])
             else:
                 self._set_status(f"  no book #{arg}")
             return
@@ -815,11 +816,22 @@ class BookScoutTui(App[None]):
             self._stop_spinner()
             self._focus_input()
 
-    def _enter_chat(self, book: Book) -> None:
+    async def _enter_chat(self, book: Book) -> None:
         if not self._repl_context or not self._repl_context.has_chat:
             self._set_status("  chat unavailable: LLM/embedding not configured.")
             return
         self._selected_book = book
+        # Create a per-session session via the SessionManager.
+        try:
+            session = await self._repl_context.session_manager.create(
+                book_id=book.id,
+                name=f"{book.title or 'untitled'}-default",
+                kind="chat",
+            )
+            self._session_id = session.session_id
+        except Exception as e:
+            self._set_status(f"  failed to create session: {e}")
+            return
         self._chat_markdown = ""
         self.query_one("#chat_log", Markdown).update(self._chat_markdown)
         self.phase = "chat"
@@ -1068,6 +1080,7 @@ class BookScoutTui(App[None]):
     async def _run_chat(self, user_input: str) -> None:
         assert self._repl_context is not None
         assert self._selected_book is not None
+        assert self._session_id is not None
         # Append the user turn as a markdown blockquote and flush to the widget.
         escaped = user_input.replace("\n", "\n> ")
         self._chat_markdown += f"\n> {escaped}\n\n"
@@ -1080,7 +1093,11 @@ class BookScoutTui(App[None]):
         self._streaming_buffer = []
         self._streaming_started = False
         try:
-            async for chunk in self._repl_context.chat(self._selected_book.id, user_input):
+            async for chunk in self._repl_context.chat(
+                self._selected_book.id,
+                self._session_id,
+                user_input,
+            ):
                 self._handle_chunk(chunk)
         except Exception as e:
             self._chat_markdown += f"\n**ERROR:** {e}\n\n"

@@ -159,12 +159,30 @@ class ReplServer(LoggingMixin):
     async def _handle_chat(self, req_id: str, request: dict[str, t.Any]) -> None:
         book_id = request.get("book_id", "")
         user_input = request.get("user_input", "")
+        session_id = request.get("session_id", "")
         if not book_id or not user_input:
             await self._send_error(req_id, "book_id and user_input required")
             return
 
+        # If no session_id provided, create a default session for this book.
+        if not session_id:
+            try:
+                sessions = await self._context.session_manager.list_by_book(book_id)
+                if sessions:
+                    session_id = sessions[0].session_id
+                else:
+                    session = await self._context.session_manager.create(
+                        book_id=book_id,
+                        name="default",
+                        kind="chat",
+                    )
+                    session_id = session.session_id
+            except Exception as e:
+                await self._send_error(req_id, f"failed to create session: {e}")
+                return
+
         try:
-            async for chunk in self._context.chat(book_id, user_input):
+            async for chunk in self._context.chat(book_id, session_id, user_input):
                 await self._send({
                     "type": "stream_chunk",
                     "request_id": req_id,
@@ -177,7 +195,7 @@ class ReplServer(LoggingMixin):
             await self._send_error(req_id, str(e))
             return
 
-        mode = await self._context.get_or_create_mode(book_id)
+        mode = await self._context.get_or_create_mode(book_id, session_id)
         if mode is not None:
             await self._send({
                 "type": "chat_done",
