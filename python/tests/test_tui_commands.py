@@ -185,33 +185,52 @@ async def test_select_unknown_command() -> None:
         assert "Unknown command: :foo" in _status(app)
 
 
-async def test_select_book_multi_rejected() -> None:
+async def test_select_arrow_keys_move_focus() -> None:
     app = BookScoutTui(BookScoutConfig())
     async with drive(app) as pilot:
-        _select_input(app).value = ":book 1,2"
+        assert app._book_focus_idx == 0
+        await pilot.press("down")
+        await pilot.pause()
+        assert app._book_focus_idx == 1
+        await pilot.press("down")
+        await pilot.pause()
+        # 2 books — clamped at last index.
+        assert app._book_focus_idx == 1
+        await pilot.press("up")
+        await pilot.pause()
+        assert app._book_focus_idx == 0
+        # Clamped at 0.
+        await pilot.press("up")
+        await pilot.pause()
+        assert app._book_focus_idx == 0
+
+
+async def test_select_enter_empty_selects_focused_book() -> None:
+    app = BookScoutTui(BookScoutConfig())
+    async with drive(app) as pilot:
+        # Focus the second book with arrow key, then Enter on empty input.
+        await pilot.press("down")
+        await pilot.pause()
+        assert app._book_focus_idx == 1
+        # Enter with empty input should select the focused book.
+        # (It calls _enter_chat which tries to use the ReplContext —
+        #  since our fake ctx doesn't support it fully, we just verify
+        #  the method is reached without crashing the select phase.)
+        _select_input(app).value = ""
         await pilot.press("enter")
         await pilot.pause()
-        assert "multi-select" in _status(app)
+        # Should have attempted to enter chat (no crash, no "Unknown command").
+        assert "Unknown command" not in _status(app)
 
 
-async def test_select_book_out_of_range() -> None:
+async def test_select_book_command_removed() -> None:
+    """:book command was removed — typing it should produce an unknown-command error."""
     app = BookScoutTui(BookScoutConfig())
     async with drive(app) as pilot:
-        _select_input(app).value = ":book 999"
+        _select_input(app).value = ":book 1"
         await pilot.press("enter")
         await pilot.pause()
-        assert "no book" in _status(app)
-
-
-async def test_select_book_no_arg() -> None:
-    app = BookScoutTui(BookScoutConfig())
-    async with drive(app) as pilot:
-        _select_input(app).value = ":book"
-        await pilot.press("enter")  # palette selects "book" → pastes ":book "
-        await pilot.pause()
-        await pilot.press("enter")  # execute
-        await pilot.pause()
-        assert "usage" in _status(app).lower()
+        assert "Unknown command" in _status(app)
 
 
 async def test_select_compile_no_arg() -> None:

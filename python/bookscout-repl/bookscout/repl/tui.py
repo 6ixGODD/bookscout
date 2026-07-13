@@ -87,6 +87,17 @@ class CommandInput(Input):
                 await app._render_session_list()  # type: ignore[attr-defined]
             return
 
+        if phase in ("select",) and event.key in ("up", "down"):
+            event.stop()
+            event.prevent_default()
+            if event.key == "up":
+                app._book_focus_idx = max(0, (app._book_focus_idx or 0) - 1)
+            elif event.key == "down":
+                n = len(getattr(app, "_books", []))
+                app._book_focus_idx = min(n - 1, (app._book_focus_idx or 0) + 1) if n else 0
+            await app._refresh_books_list()  # type: ignore[attr-defined]
+            return
+
         if phase in ("index_select", "builder_select") and event.key in ("up", "down", "space"):
             event.stop()
             event.prevent_default()
@@ -115,12 +126,12 @@ class BookScoutTui(App[None]):
     """The BookScout terminal UI."""
 
     CSS = """
-    $surface: #000000;
-    $panel: #000000;
+    $surface: transparent;
+    $panel: transparent;
     $boost: #111111;
     $text-muted: #999999;
     Screen {
-        background: #000000;
+        background: transparent;
         color: #c0c0c0;
         scrollbar-size: 0 0;
         layers: none;
@@ -196,7 +207,7 @@ class BookScoutTui(App[None]):
         max-height: 6;
     }
     #command_palette {
-        background: #1a1a1a;
+        background: $boost;
         border: none;
         height: auto;
         max-height: 14;
@@ -208,19 +219,19 @@ class BookScoutTui(App[None]):
         height: auto;
     }
     Container {
-        background: #000000;
+        background: transparent;
         width: 100%;
     }
     Rule {
         color: #ffffff;
-        background: #000000;
+        background: transparent;
     }
     Input {
         border-top: solid #ffffff;
         border-bottom: solid #ffffff;
         border-left: none;
         border-right: none;
-        background: #000000;
+        background: transparent;
         color: #c0c0c0;
         padding: 0 0 0 2;
         height: 3;
@@ -232,7 +243,7 @@ class BookScoutTui(App[None]):
     }
     ListView > ListItem {
         padding: 0;
-        background: #000000;
+        background: transparent;
     }
     ListView:focus > ListItem.--highlight {
         background: #333333;
@@ -285,6 +296,7 @@ class BookScoutTui(App[None]):
         self._session_focus_idx: int = 0
         self._current_session: Session | None = None
         self._session_select_cross_book: bool = False
+        self._book_focus_idx: int = 0
 
     def compose(self) -> ComposeResult:
         with Container(id="header"):
@@ -391,7 +403,7 @@ class BookScoutTui(App[None]):
     @staticmethod
     def _header_hint_for_phase(phase: str) -> str:
         if phase == "select":
-            return "type : for commands"
+            return "↑↓ select    Enter: open    : for commands"
         if phase == "session_select":
             return "type : for commands    Enter: resume    :new: create    :back: return to books"
         if phase == "index_select":
@@ -461,24 +473,27 @@ class BookScoutTui(App[None]):
         lv = self.query_one("#books_list", ListView)
         await lv.clear()
         registry = self._repl_context.registry if self._repl_context else None
-        for idx, book in enumerate(self._books, start=1):
+        for idx, book in enumerate(self._books):
             title = book.title or "(untitled)"
             author = book.author or "Unknown"
+            focused = idx == self._book_focus_idx
+            style = "bold white" if focused else "#888888"
+            dim_style = "#666666" if focused else "#444444"
             flags: list[Text] = []
             if registry is not None:
                 built = set(book.indexes)
                 for provider in registry.all():
                     mark = "\u221a" if provider.index_type in built else "\u00d7"
-                    style = "bold white" if provider.index_type in built else "dim"
-                    flags.append(Text(f" {mark} {provider.display_name} ", style=style))
+                    flag_style = "bold white" if provider.index_type in built else dim_style
+                    flags.append(Text(f" {mark} {provider.display_name} ", style=flag_style))
             else:
                 built_count = len(book.indexes) if book.indexes else 0
-                flags.append(Text(f" {built_count} idx", style="dim"))
+                flags.append(Text(f" {built_count} idx", style=dim_style))
 
             label = Text.assemble(
-                Text(f"{idx:>2}  ", style="bold"),
-                Text(title, style="bold"),
-                Text(f"  {author}", style="dim"),
+                Text(f"  {idx + 1:>2}  ", style=style),
+                Text(title, style=style),
+                Text(f"  {author}", style=dim_style),
                 Text("  "),
                 *flags,
             )
@@ -542,7 +557,10 @@ class BookScoutTui(App[None]):
         return value.strip()
 
     async def _handle_select_input(self, value: str) -> None:
+        # Enter on empty input → select the focused book.
         if not value:
+            if self._books and 0 <= self._book_focus_idx < len(self._books):
+                await self._enter_chat(self._books[self._book_focus_idx])
             return
         self.query_one("#select_input", Input).value = ""
         if not value.startswith(":"):
@@ -568,26 +586,7 @@ class BookScoutTui(App[None]):
             self.phase = "session_select"
             self._set_status(f"  {len(all_sessions)} session(s) total")
             return
-        # :book N 閳?enter chat for a single book.
-        if low.startswith(":book") or low.startswith(":b "):
-            parts = value.split(None, 1)
-            if len(parts) < 2 or not parts[1].strip():
-                self._set_status("  usage: :book N")
-                return
-            arg = parts[1].strip()
-            if "," in arg:
-                self._set_status("  multi-select not supported yet")
-                return
-            if not arg.isdigit():
-                self._set_status("  usage: :book N")
-                return
-            idx = int(arg) - 1
-            if 0 <= idx < len(self._books):
-                await self._enter_chat(self._books[idx])
-            else:
-                self._set_status(f"  no book #{arg}")
-            return
-        # :compile <path> 閳?add a new book.
+        # :compile <path> — add a new book.
         if low.startswith(":compile") or low.startswith(":c "):
             parts = value.split(None, 1)
             if len(parts) < 2 or not parts[1].strip():
@@ -962,7 +961,29 @@ class BookScoutTui(App[None]):
         self._current_session = session
         self._session_id = session.session_id
         self._chat_markdown = ""
+
+        # Load existing conversation history from the ReadingMode (if any).
+        if self._repl_context is not None:
+            mode = await self._repl_context.get_or_create_mode(book.id, session.session_id)
+            if mode is not None:
+                messages = mode.get_conversation_messages()
+                if messages:
+                    md_parts: list[str] = []
+                    for msg in messages:
+                        role = msg.get("role", "")
+                        content = msg.get("content", "")
+                        if role == "user":
+                            escaped = content.replace("\n", "\n> ")
+                            md_parts.append(f"> {escaped}\n\n")
+                        elif role == "assistant":
+                            md_parts.append(f"{content}\n\n")
+                    self._chat_markdown = "".join(md_parts)
+
         self.query_one("#chat_log", Markdown).update(self._chat_markdown)
+        # Scroll to the end after loading history.
+        with contextlib.suppress(Exception):
+            chat_log = self.query_one("#chat_log", Markdown)
+            chat_log.scroll_end(animate=False)
         self.phase = "chat"
         title = book.title or "(untitled)"
         author = book.author or "Unknown"
@@ -1002,7 +1023,7 @@ class BookScoutTui(App[None]):
             if self._selected_book is None and self._session_list:
                 self._selected_book = self._find_book_for_session(self._session_list[0])
             if self._selected_book is None:
-                self._set_status("  no book selected; use :back then :book N first")
+                self._set_status("  no book selected; use :back to return to books first")
                 return
             import random
             import string
@@ -1035,7 +1056,7 @@ class BookScoutTui(App[None]):
                 else (self._session_list[0].book_id if self._session_list else None)
             )
             if book_id is None:
-                self._set_status("  no book selected; use :back then :book N first")
+                self._set_status("  no book selected; use :back to return to books first")
                 return
             mgr = self._repl_context.session_manager
             session = await mgr.create(book_id=book_id, name=name, kind="chat")
@@ -1603,7 +1624,6 @@ class BookScoutTui(App[None]):
     # -- Command palette --
     _COMMANDS: list[tuple[str, str, tuple[str, ...]]] = [
         ("back", "Return to the book list", ("chat", "session_select", "index_select", "builder_select")),
-        ("book", "Open book N in chat: :book N", ("select",)),
         ("bottom", "Scroll to the bottom of the chat", ("chat",)),
         ("clear", "Clear the chat log", ("chat",)),
         ("compact", "Manually compact conversation history", ("chat",)),
