@@ -82,9 +82,9 @@ class CommandInput(Input):
                 n = len(getattr(app, "_session_list", []))
                 app._session_focus_idx = min(n - 1, (app._session_focus_idx or 0) + 1) if n else 0
             if getattr(app, "_session_select_cross_book", False):
-                app._render_cross_book_session_list()  # type: ignore[attr-defined]
+                await app._render_cross_book_session_list()  # type: ignore[attr-defined]
             else:
-                app._render_session_list()  # type: ignore[attr-defined]
+                await app._render_session_list()  # type: ignore[attr-defined]
             return
 
         if phase in ("index_select", "builder_select") and event.key in ("up", "down", "space"):
@@ -124,7 +124,9 @@ class BookScoutTui(App[None]):
         color: #c0c0c0;
         scrollbar-size: 0 0;
         layers: none;
-        overflow: hidden;
+        overflow: hidden hidden;
+        width: 100%;
+        height: 100%;
     }
     * {
         scrollbar-size: 0 0;
@@ -135,12 +137,12 @@ class BookScoutTui(App[None]):
         dock: bottom;
         height: 1;
         color: #666666;
-        padding: 0 1;
+        padding: 0 0 0 2;
     }
     #header {
         layout: vertical;
         height: auto;
-        padding: 0 1;
+        padding: 0 0 0 2;
     }
     #header_brand {
         color: #ffffff;
@@ -158,9 +160,9 @@ class BookScoutTui(App[None]):
     }
     #main {
         layout: vertical;
-        width: 1fr;
+        width: 100%;
         height: 1fr;
-        padding: 0 1;
+        padding: 0 0 0 2;
     }
     .log-area {
         height: 1fr;
@@ -177,19 +179,19 @@ class BookScoutTui(App[None]):
     #spinner_line, #chat_spinner_line {
         height: 1;
         color: #666666;
-        padding: 0 0 0 0;
+        padding: 0;
     }
     #input_area {
         height: auto;
         min-height: 3;
-        padding: 0 0 0 0;
+        padding: 0;
     }
     #select_input, #chat_input {
-        width: 1fr;
+        width: 100%;
     }
     #error_display {
         color: #cc6666;
-        padding: 0 1;
+        padding: 0 2;
         height: auto;
         max-height: 6;
     }
@@ -198,7 +200,7 @@ class BookScoutTui(App[None]):
         border: none;
         height: auto;
         max-height: 14;
-        margin: 0 1;
+        margin: 0 2;
         display: none;
         scrollbar-size: 0 0;
     }
@@ -220,7 +222,7 @@ class BookScoutTui(App[None]):
         border-right: none;
         background: #000000;
         color: #c0c0c0;
-        padding: 0 0 0 0;
+        padding: 0 0 0 2;
         height: 3;
         width: 100%;
     }
@@ -229,7 +231,7 @@ class BookScoutTui(App[None]):
         border-bottom: solid #ffffff;
     }
     ListView > ListItem {
-        padding: 0 1;
+        padding: 0;
         background: #000000;
     }
     ListView:focus > ListItem.--highlight {
@@ -363,7 +365,7 @@ class BookScoutTui(App[None]):
                 await self._enter_chat(book)  # handles session creation
                 return
 
-        self._refresh_books_list()
+        await self._refresh_books_list()
         self.phase = "select"
         self._set_status(f"  {len(self._books)} book(s)" + ("" if ctx.has_chat else "  [no LLM/embedding]"))
         self._focus_input()
@@ -406,6 +408,7 @@ class BookScoutTui(App[None]):
     def _set_console_title(title: str) -> None:
         """Set the terminal window/tab title via escape sequence."""
         import sys
+
         sys.stdout.write(f"\x1b]0;{title}\x07")
         sys.stdout.flush()
 
@@ -434,7 +437,12 @@ class BookScoutTui(App[None]):
                 self.query_one(f"#{panel_id}", Container).display = panel_id == active
         # Show the right input.
         with contextlib.suppress(Exception):
-            self.query_one("#select_input", Input).display = phase in ("select", "session_select", "index_select", "builder_select")
+            self.query_one("#select_input", Input).display = phase in (
+                "select",
+                "session_select",
+                "index_select",
+                "builder_select",
+            )
             self.query_one("#chat_input", Input).display = phase in ("chat", "compile")
 
     def _set_status(self, text: str) -> None:
@@ -449,9 +457,9 @@ class BookScoutTui(App[None]):
         with contextlib.suppress(Exception):
             self.query_one("#error_display", Static).update("")
 
-    def _refresh_books_list(self) -> None:
+    async def _refresh_books_list(self) -> None:
         lv = self.query_one("#books_list", ListView)
-        lv.clear()
+        await lv.clear()
         registry = self._repl_context.registry if self._repl_context else None
         for idx, book in enumerate(self._books, start=1):
             title = book.title or "(untitled)"
@@ -556,7 +564,7 @@ class BookScoutTui(App[None]):
             self._session_list = all_sessions
             self._session_focus_idx = 0
             self._session_select_cross_book = True
-            self._render_cross_book_session_list()
+            await self._render_cross_book_session_list()
             self.phase = "session_select"
             self._set_status(f"  {len(all_sessions)} session(s) total")
             return
@@ -868,7 +876,7 @@ class BookScoutTui(App[None]):
             if book_dir.exists():
                 shutil.rmtree(book_dir, ignore_errors=True)
             self._books = await self._repl_context.list_books()
-            self._refresh_books_list()
+            await self._refresh_books_list()
             self._set_status(f"  deleted: {book.title or '(untitled)'}.  {len(self._books)} book(s) remaining.")
         except Exception as e:
             self._show_error(f"Failed to delete book:\n{e}")
@@ -886,10 +894,11 @@ class BookScoutTui(App[None]):
         mgr = self._repl_context.session_manager
         sessions = await mgr.list_by_book(book.id)
         if sessions:
-            self._enter_session_select(book, sessions)
+            await self._enter_session_select(book, sessions)
         else:
             import random
             import string
+
             suffix = "".join(random.choices(string.ascii_lowercase + string.digits, k=6))
             name = f"{(book.title or 'untitled')[:20]}-{suffix}"
             session = await mgr.create(book_id=book.id, name=name, kind="chat")
@@ -898,16 +907,16 @@ class BookScoutTui(App[None]):
             await self._enter_chat_with_session(book, session)
 
     # -- Session select phase --
-    def _enter_session_select(self, book: Book, sessions: list[Session]) -> None:
+    async def _enter_session_select(self, book: Book, sessions: list[Session]) -> None:
         self._session_list = sessions
         self._session_focus_idx = 0
         self._session_select_cross_book = False
-        self._render_session_list()
+        await self._render_session_list()
         self.phase = "session_select"
         self._set_status(f"  {len(sessions)} session(s) for {book.title or '(untitled)'}")
         self._focus_input()
 
-    def _render_session_list(self) -> None:
+    async def _render_session_list(self) -> None:
         out = Text()
         for idx, sess in enumerate(self._session_list):
             if idx > 0:
@@ -915,19 +924,18 @@ class BookScoutTui(App[None]):
             focused = idx == self._session_focus_idx
             style = "bold white" if focused else "#888888"
             import datetime as _dt
+
             ts = _dt.datetime.fromtimestamp(sess.updated_at).strftime("%Y-%m-%d %H:%M")
-            out.append(Text(f"  {idx+1:>2}  ", style=style))
+            out.append(Text(f"  {idx + 1:>2}  ", style=style))
             out.append(Text(f"{sess.name[:30]:<30}", style=style))
             out.append(Text(f"  {sess.kind:<10}", style="#666666" if focused else "#444444"))
             out.append(Text(f"  {sess.turn_count:>4} turns", style="#666666" if focused else "#444444"))
             out.append(Text(f"  {ts}", style="#444444"))
-        out.append(Text("\n\n"))
-        out.append(Text("  Enter: resume    :new: create    :back: return to books", style="#666666"))
         lv = self.query_one("#books_list", ListView)
-        lv.clear()
+        await lv.clear()
         lv.append(ListItem(Static(out)))
 
-    def _render_cross_book_session_list(self) -> None:
+    async def _render_cross_book_session_list(self) -> None:
         out = Text()
         for idx, sess in enumerate(self._session_list):
             if idx > 0:
@@ -935,20 +943,19 @@ class BookScoutTui(App[None]):
             focused = idx == self._session_focus_idx
             style = "bold white" if focused else "#888888"
             import datetime as _dt
+
             ts = _dt.datetime.fromtimestamp(sess.updated_at).strftime("%Y-%m-%d %H:%M")
             book_title = "?"
             book = next((b for b in self._books if b.id == sess.book_id), None)
             if book is not None:
                 book_title = book.title or "(untitled)"
-            out.append(Text(f"  {idx+1:>2}  ", style=style))
+            out.append(Text(f"  {idx + 1:>2}  ", style=style))
             out.append(Text(f"{sess.name[:25]:<25}", style=style))
             out.append(Text(f"  [{book_title[:20]:<20}]", style="#666666" if focused else "#444444"))
             out.append(Text(f"  {sess.turn_count:>4} turns", style="#666666" if focused else "#444444"))
             out.append(Text(f"  {ts}", style="#444444"))
-        out.append(Text("\n\n"))
-        out.append(Text("  Enter: resume    :back: return to books", style="#666666"))
         lv = self.query_one("#books_list", ListView)
-        lv.clear()
+        await lv.clear()
         lv.append(ListItem(Static(out)))
 
     async def _enter_chat_with_session(self, book: Book, session: Session) -> None:
@@ -999,6 +1006,7 @@ class BookScoutTui(App[None]):
                 return
             import random
             import string
+
             suffix = "".join(random.choices(string.ascii_lowercase + string.digits, k=6))
             name = f"{(self._selected_book.title or 'untitled')[:20]}-{suffix}"
             mgr = self._repl_context.session_manager
@@ -1014,9 +1022,18 @@ class BookScoutTui(App[None]):
             if not name:
                 import random
                 import string
+
                 suffix = "".join(random.choices(string.ascii_lowercase + string.digits, k=6))
-                name = f"{(self._selected_book.title or 'untitled')[:20]}-{suffix}" if self._selected_book else f"session-{suffix}"
-            book_id = self._selected_book.id if self._selected_book else (self._session_list[0].book_id if self._session_list else None)
+                name = (
+                    f"{(self._selected_book.title or 'untitled')[:20]}-{suffix}"
+                    if self._selected_book
+                    else f"session-{suffix}"
+                )
+            book_id = (
+                self._selected_book.id
+                if self._selected_book
+                else (self._session_list[0].book_id if self._session_list else None)
+            )
             if book_id is None:
                 self._set_status("  no book selected; use :back then :book N first")
                 return
@@ -1041,13 +1058,13 @@ class BookScoutTui(App[None]):
             self._session_list = all_sessions
             self._session_focus_idx = 0
             self._session_select_cross_book = True
-            self._render_cross_book_session_list()
+            await self._render_cross_book_session_list()
             self._set_status(f"  {len(all_sessions)} session(s) total")
             return
 
         if low in (":back", ":cancel", ":select"):
             self.phase = "select"
-            self._refresh_books_list()
+            await self._refresh_books_list()
             self._set_status(f"  {len(self._books)} book(s)")
             return
 
@@ -1184,7 +1201,7 @@ class BookScoutTui(App[None]):
                 self._selected_book = next((b for b in self._books if b.id == self._selected_book.id), None)
                 self._set_status(f"  {self._selected_book.title or '(untitled)'}")
             else:
-                self._refresh_books_list()
+                await self._refresh_books_list()
                 self._set_status("  compile OK -- pick a book")
             self._focus_input()
             return
@@ -1204,7 +1221,7 @@ class BookScoutTui(App[None]):
         self._set_status("  failed. type a new path to retry.")
         self._pending_task_id = None
         self.phase = "select"
-        self._refresh_books_list()
+        await self._refresh_books_list()
         self._focus_input()
 
     # -- Chat phase --
@@ -1228,7 +1245,7 @@ class BookScoutTui(App[None]):
             return
         if text.lower() in (":back", ":select"):
             self._selected_book = None
-            self._refresh_books_list()
+            await self._refresh_books_list()
             self.phase = "select"
             self._focus_input()
             return
@@ -1303,7 +1320,7 @@ class BookScoutTui(App[None]):
             self._session_list = all_sessions
             self._session_focus_idx = 0
             self._session_select_cross_book = True
-            self._render_cross_book_session_list()
+            await self._render_cross_book_session_list()
             self.phase = "session_select"
             self._set_status(f"  {len(all_sessions)} session(s) total")
             return
@@ -1326,6 +1343,7 @@ class BookScoutTui(App[None]):
             if not name:
                 import random
                 import string
+
                 suffix = "".join(random.choices(string.ascii_lowercase + string.digits, k=6))
                 name = f"{(self._selected_book.title or 'untitled')[:20]}-{suffix}"
             if self._selected_book is None:
@@ -1462,7 +1480,7 @@ class BookScoutTui(App[None]):
                 await log.update(self._chat_markdown)
                 log.scroll_end(animate=False)
             else:
-                self._refresh_books_list()
+                await self._refresh_books_list()
             self._set_status(
                 f"  removed {idx_type} from #{self._books.index(self._selected_book) + 1 if self._selected_book else '-'}"
             )

@@ -134,7 +134,7 @@ async def drive(app: BookScoutTui, *, books: list[Book] | None = None):
     try:
         async with app.run_test(size=(120, 36)) as pilot:
             app._books = list(books)
-            app._refresh_books_list()
+            await app._refresh_books_list()
             app.phase = "select"
             app._set_status(f"  {len(books)} book(s)")
             app._focus_input()
