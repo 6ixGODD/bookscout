@@ -66,6 +66,21 @@ class SessionManager(LoggingMixin, AsyncResourceMixin):
             "CREATE INDEX IF NOT EXISTS idx_session_book ON session(book_id)",
             readonly=False,
         )
+        await self._sqlite.exec(
+            """CREATE TABLE IF NOT EXISTS message_log (
+                msg_id       INTEGER PRIMARY KEY AUTOINCREMENT,
+                session_id   TEXT NOT NULL,
+                role         TEXT NOT NULL,
+                content      TEXT NOT NULL,
+                created_at   REAL NOT NULL,
+                FOREIGN KEY (session_id) REFERENCES session(session_id)
+            )""",
+            readonly=False,
+        )
+        await self._sqlite.exec(
+            "CREATE INDEX IF NOT EXISTS idx_msg_session ON message_log(session_id)",
+            readonly=False,
+        )
 
     async def create(self, *, book_id: str, name: str, kind: str = "chat") -> Session:
         session = Session(book_id=book_id, name=name, kind=kind)
@@ -116,6 +131,31 @@ class SessionManager(LoggingMixin, AsyncResourceMixin):
             sid=session_id,
             extra=json.dumps({"last_user_input": user_input, "last_response": response_text[:200]}),
         )
+
+    async def append_message(self, session_id: str, *, role: str, content: str) -> None:
+        """Append a single message to the session's conversation log."""
+        await self._sqlite.exec(
+            """INSERT INTO message_log (session_id, role, content, created_at)
+               VALUES (:sid, :role, :content, :ts)""",
+            readonly=False,
+            sid=session_id,
+            role=role,
+            content=content,
+            ts=utcnow_ts(),
+        )
+
+    async def load_messages(self, session_id: str) -> list[dict[str, str]]:
+        """Load the full conversation history for a session.
+
+        Returns a list of ``{"role": "user"|"assistant", "content": str}``
+        ordered chronologically.
+        """
+        result = await self._sqlite.exec(
+            "SELECT role, content FROM message_log WHERE session_id = :sid ORDER BY msg_id ASC",
+            readonly=True,
+            sid=session_id,
+        )
+        return [{"role": row[0], "content": row[1]} for row in result.fetchall()]
 
     async def archive(self, session_id: str) -> None:
         await self._sqlite.exec(

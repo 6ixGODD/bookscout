@@ -962,22 +962,20 @@ class BookScoutTui(App[None]):
         self._session_id = session.session_id
         self._chat_markdown = ""
 
-        # Load existing conversation history from the ReadingMode (if any).
+        # Load existing conversation history from the persistent message log.
         if self._repl_context is not None:
-            mode = await self._repl_context.get_or_create_mode(book.id, session.session_id)
-            if mode is not None:
-                messages = mode.get_conversation_messages()
-                if messages:
-                    md_parts: list[str] = []
-                    for msg in messages:
-                        role = msg.get("role", "")
-                        content = msg.get("content", "")
-                        if role == "user":
-                            escaped = content.replace("\n", "\n> ")
-                            md_parts.append(f"> {escaped}\n\n")
-                        elif role == "assistant":
-                            md_parts.append(f"{content}\n\n")
-                    self._chat_markdown = "".join(md_parts)
+            messages = await self._repl_context.session_manager.load_messages(session.session_id)
+            if messages:
+                md_parts: list[str] = []
+                for msg in messages:
+                    role = msg.get("role", "")
+                    content = msg.get("content", "")
+                    if role == "user":
+                        escaped = content.replace("\n", "\n> ")
+                        md_parts.append(f"> {escaped}\n\n")
+                    elif role == "assistant":
+                        md_parts.append(f"{content}\n\n")
+                self._chat_markdown = "".join(md_parts)
 
         self.query_one("#chat_log", Markdown).update(self._chat_markdown)
         # Scroll to the end after loading history.
@@ -1451,13 +1449,24 @@ class BookScoutTui(App[None]):
             self._flush_streaming()
             self._chat_busy = False
             self._stop_spinner()
-            # Update session record.
+            # Update session record + persist messages.
             if self._current_session and self._repl_context:
                 response_text = "".join(response_text_parts)
-                await self._repl_context.session_manager.update_after_turn(
+                mgr = self._repl_context.session_manager
+                await mgr.update_after_turn(
                     self._current_session.session_id,
                     user_input=user_input,
                     response_text=response_text,
+                )
+                await mgr.append_message(
+                    self._current_session.session_id,
+                    role="user",
+                    content=user_input,
+                )
+                await mgr.append_message(
+                    self._current_session.session_id,
+                    role="assistant",
+                    content=response_text,
                 )
             self._set_status(f"  {self._selected_book.title or '(untitled)'}")
             self._focus_input()

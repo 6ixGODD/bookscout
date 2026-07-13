@@ -68,3 +68,44 @@ async def test_archive(session_manager: SessionManager):
     assert loaded.status == "archived"
     active = await session_manager.list_by_book("book_1")
     assert len(active) == 0
+
+
+@pytest.mark.asyncio
+async def test_append_and_load_messages(session_manager: SessionManager):
+    sess = await session_manager.create(book_id="book_1", name="Chat")
+    # Initially empty.
+    assert await session_manager.load_messages(sess.session_id) == []
+
+    # Append a user + assistant turn.
+    await session_manager.append_message(sess.session_id, role="user", content="hello")
+    await session_manager.append_message(sess.session_id, role="assistant", content="hi there")
+
+    msgs = await session_manager.load_messages(sess.session_id)
+    assert len(msgs) == 2
+    assert msgs[0] == {"role": "user", "content": "hello"}
+    assert msgs[1] == {"role": "assistant", "content": "hi there"}
+
+    # Second turn.
+    await session_manager.append_message(sess.session_id, role="user", content="how are you?")
+    await session_manager.append_message(sess.session_id, role="assistant", content="fine!")
+
+    msgs = await session_manager.load_messages(sess.session_id)
+    assert len(msgs) == 4
+    assert msgs[2]["role"] == "user"
+    assert msgs[3]["content"] == "fine!"
+
+
+@pytest.mark.asyncio
+async def test_load_messages_isolation(session_manager: SessionManager):
+    """Messages from one session don't leak into another."""
+    s1 = await session_manager.create(book_id="book_1", name="S1")
+    s2 = await session_manager.create(book_id="book_1", name="S2")
+    await session_manager.append_message(s1.session_id, role="user", content="for s1")
+    await session_manager.append_message(s2.session_id, role="user", content="for s2")
+
+    m1 = await session_manager.load_messages(s1.session_id)
+    m2 = await session_manager.load_messages(s2.session_id)
+    assert len(m1) == 1
+    assert m1[0]["content"] == "for s1"
+    assert len(m2) == 1
+    assert m2[0]["content"] == "for s2"
