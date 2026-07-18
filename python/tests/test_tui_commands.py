@@ -18,7 +18,7 @@ from bookscout.doccompiler.index_provider import IndexContext
 from bookscout.doccompiler.index_provider import IndexProvider
 from bookscout.doccompiler.index_registry import IndexRegistry
 from bookscout.repl.config import BookScoutConfig
-from bookscout.repl.tui import BookScoutTui
+from bookscout.repl.tui_textual import BookScoutTui
 
 # -- Fakes -------------------------------------------------------------------
 
