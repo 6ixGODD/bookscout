@@ -112,7 +112,7 @@ class ReadingAgent(ModeAgent):
         # Select model based on configured profiles.
         model = self.profiles.standard
 
-        options = CompletionOptions(model=model, temperature=0.2)
+        options = CompletionOptions(model=model, temperature=0.2, max_tool_iterations=50)
         response = await ctx.llm.chat_completion(
             [SystemMessage(content=prompt), *messages],
             tools=self.tools,
@@ -160,7 +160,7 @@ class ReadingAgent(ModeAgent):
         }
         ctx.extra["tool_call_status"] = []
 
-        options = CompletionOptions(model=model, temperature=0.2, stream=True)
+        options = CompletionOptions(model=model, temperature=0.2, stream=True, max_tool_iterations=50)
         full_messages: list[Message] = [SystemMessage(content=prompt), *messages]
 
         async def _gen() -> t.AsyncIterator[StreamEvent]:

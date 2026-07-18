@@ -121,6 +121,9 @@ class CompletionOptions(BaseModel):
     stop: list[str] | None = None
     thinking: ThinkingConfig | None = None
     stream: bool = False
+    max_tool_iterations: int | None = None
+    """Override the global ToolcallConfig.max_iterations for this request.
+    When None (default), the global config value is used."""
 
 
 # ═══════════════════════════════════════════════════════════════════

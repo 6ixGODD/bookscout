@@ -370,7 +370,11 @@ class ChatModel(
         )
 
         # Tool-call loop (stateless 鈥?no persistence)
-        max_iterations = self.config.toolcall.max_iterations
+        max_iterations = (
+            opts.max_tool_iterations
+            if opts.max_tool_iterations is not None
+            else self.config.toolcall.max_iterations
+        )
         current_messages = list(messages)
         response: CompletionResponse = CompletionResponse(
             message=AssistantMessage(content=""),
@@ -492,7 +496,11 @@ class ChatModel(
 
         # Streaming event generator with tool execution
         async def _stream_with_tools() -> t.AsyncIterator[StreamEvent]:
-            max_iterations = self.config.toolcall.max_iterations
+            max_iterations = (
+            opts.max_tool_iterations
+            if opts.max_tool_iterations is not None
+            else self.config.toolcall.max_iterations
+        )
             current_messages = list(messages)
 
             # Variables that persist across iterations for the max-iterations fallback
@@ -675,7 +683,11 @@ class ChatModel(
         all_messages = await self._truncate_to_budget(all_messages)
 
         # Tool-call loop
-        max_iterations = self.config.toolcall.max_iterations
+        max_iterations = (
+            opts.max_tool_iterations
+            if opts.max_tool_iterations is not None
+            else self.config.toolcall.max_iterations
+        )
         response: CompletionResponse = CompletionResponse(
             message=AssistantMessage(content=""),
             usage=Usage(input_tokens=0, output_tokens=0, cache_read_tokens=0, cache_write_tokens=0),
@@ -816,7 +828,11 @@ class ChatModel(
 
         # Create the streaming event generator with tool execution
         async def _stream_with_tools() -> t.AsyncIterator[StreamEvent]:
-            max_iterations = self.config.toolcall.max_iterations
+            max_iterations = (
+            opts.max_tool_iterations
+            if opts.max_tool_iterations is not None
+            else self.config.toolcall.max_iterations
+        )
             current_messages = list(all_messages)
 
             # Variables that persist across iterations for the max-iterations fallback
