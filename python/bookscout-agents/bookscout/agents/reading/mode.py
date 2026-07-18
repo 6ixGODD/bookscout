@@ -231,6 +231,12 @@ class ReadingMode(Mode):
                         },
                     )
 
+                elif event_type == "status":
+                    # Forward LLM status events (e.g. retry) to the TUI.
+                    phase = event.get("phase", "")
+                    data = event.get("data", {})
+                    yield StreamChunk(kind="status", data={"phase": phase, **data})
+
                 elif event_type == "response_complete":
                     resp = event.get("response", {})
                     usage = dict(resp.get("usage", {}) or {})

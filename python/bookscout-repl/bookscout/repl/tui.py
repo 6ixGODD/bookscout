@@ -1460,6 +1460,29 @@ class BookScoutTui(App[None]):
             log.scroll_end(animate=False)
             return
 
+        if low == ":usage":
+            assert self._repl_context is not None
+            llm = self._repl_context.llm
+            if llm is None:
+                self._set_status("  LLM not configured")
+                return
+            usage = await llm.get_rate_limit_usage()
+            if usage is None:
+                self._set_status("  Rate limiting is off")
+                return
+            lines = ["**Rate Limit Usage:**"]
+            for wname, info in usage.items():
+                limit = info["limit"]
+                if limit == 0:
+                    lines.append(f"- {wname}: unlimited (requests={info['requests']}, tokens={info['tokens_used']})")
+                else:
+                    lines.append(f"- {wname}: {info['requests']}req / {info['tokens_used']}tok of {limit} limit")
+            self._chat_markdown += "\n" + "\n".join(lines) + "\n\n"
+            log = self.query_one("#chat_log", Markdown)
+            await log.update(self._chat_markdown)
+            log.scroll_end(animate=False)
+            return
+
         if low.startswith(":"):
             self._set_status(f"  Unknown chat command: {text}")
             return
@@ -1725,6 +1748,7 @@ class BookScoutTui(App[None]):
         ("rename", "Rename current session: :rename <NAME>", ("chat",)),
         ("session new", "Create a new session: :session new <name>", ("chat", "session_select")),
         ("session list", "List sessions for current book", ("chat",)),
+        ("usage", "Show rate-limit usage stats", ("chat",)),
         ("new", "Create a new session for the current book", ("session_select",)),
     ]
 

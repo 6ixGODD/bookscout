@@ -40,6 +40,7 @@ from .config import LLMConfig
 from .exceptions import CompletionError
 from .exceptions import ContextOverflowError
 from .exceptions import handle_errors
+from .rate_limiter import RateLimiter
 from .store.conversation import ConversationStore
 from .store.file import LLMFileStore
 from .types import AssistantMessage
@@ -47,6 +48,7 @@ from .types import CompletionOptions
 from .types import CompletionResponse
 from .types import Message
 from .types import ResponseCompleteEvent
+from .types import StatusEvent
 from .types import StreamEvent
 from .types import ToolCall
 from .types import ToolCallFunction
@@ -148,6 +150,7 @@ class ChatModel(
         self.conversation_store: ConversationStore | None = None
         self.llm_file_store: LLMFileStore | None = None
         self.filestore: FileStore | None = None
+        self._rate_limiter: RateLimiter | None = None
         if not self._stateless:
             self.sqlite = SQLite(
                 config=SQLiteConfig(uri=config.db_uri),
@@ -168,6 +171,12 @@ class ChatModel(
             Estimated token count (minimum 1).
         """
         return estimate_text_tokens(text)
+
+    async def get_rate_limit_usage(self) -> dict[str, dict[str, t.Any]] | None:
+        """Return current rate-limit usage stats, or ``None`` if rate limiting is off."""
+        if self._rate_limiter is None:
+            return None
+        return await self._rate_limiter.get_usage()
 
     @staticmethod
     def _is_retryable(error: Exception) -> bool:
@@ -226,6 +235,14 @@ class ChatModel(
             )
             await self.llm_file_store.startup()
 
+        # Initialize rate limiter if configured.
+        if self.config.ratelimit.mode != "off":
+            self._rate_limiter = RateLimiter(
+                config=self.config.ratelimit,
+                logger=self.logger,
+            )
+            await self._rate_limiter.startup()
+
         # Let subclass do provider-specific initialization
         await self._startup_provider()
 
@@ -238,6 +255,9 @@ class ChatModel(
         In stateless mode, only the provider client is shut down.
         """
         await self._shutdown_provider()
+
+        if self._rate_limiter is not None:
+            await self._rate_limiter.shutdown()
 
         if not self._stateless:
             if self.llm_file_store is not None:
@@ -380,7 +400,15 @@ class ChatModel(
         # Check context budget
         self._check_context_budget(messages)
 
-        # Convert tools once 鈥?tools don't change across iterations
+        # Rate-limit check
+        estimated_tokens = _estimate_tokens(messages) if self._rate_limiter else 0
+        if self._rate_limiter:
+            await self._rate_limiter.check_allowed(estimated_tokens=estimated_tokens)
+            rl_row_id = await self._rate_limiter.record_request(estimated_tokens=estimated_tokens)
+        else:
+            rl_row_id = 0
+
+        # Convert tools once — tools don't change across iterations
         provider_tools = self._convert_tools(tools) if tools else None
 
         self.logger.info(
@@ -455,6 +483,14 @@ class ChatModel(
             assistant_msg = response["message"]
             tool_calls = assistant_msg.tool_calls
             if not tool_calls or tool_executor is None:
+                # Record actual usage before returning.
+                if self._rate_limiter and rl_row_id:
+                    usage = response.get("usage", {})
+                    await self._rate_limiter.record_actual_usage(
+                        rl_row_id,
+                        input_tokens=usage.get("input_tokens", 0),
+                        output_tokens=usage.get("output_tokens", 0),
+                    )
                 return response
 
             # Execute tool calls
@@ -531,7 +567,15 @@ class ChatModel(
         # Check context budget
         self._check_context_budget(messages)
 
-        # Convert tools once 鈥?tools don't change across iterations
+        # Rate-limit check
+        estimated_tokens = _estimate_tokens(messages) if self._rate_limiter else 0
+        if self._rate_limiter:
+            await self._rate_limiter.check_allowed(estimated_tokens=estimated_tokens)
+            rl_row_id = await self._rate_limiter.record_request(estimated_tokens=estimated_tokens)
+        else:
+            rl_row_id = 0
+
+        # Convert tools once — tools don't change across iterations
         provider_tools = self._convert_tools(tools) if tools else None
 
         self.logger.info(
@@ -587,9 +631,10 @@ class ChatModel(
                             delay=f"{delay:.1f}s",
                             error=str(e),
                         )
-                        yield StreamChunk(
-                            kind="status",
-                            data={"phase": "retry", "attempt": _retry_attempt, "max_retries": cfg.max_retries, "error": str(e)},
+                        yield StatusEvent(
+                            type="status",
+                            phase="retry",
+                            data={"attempt": _retry_attempt, "max_retries": cfg.max_retries, "error": str(e)},
                         )
                         await asyncio.sleep(delay)
 
@@ -625,6 +670,13 @@ class ChatModel(
                         resp = event["response"]
                         usage = resp["usage"]
                         finish_reason = resp["finish_reason"]
+                        # Record actual usage from the model.
+                        if self._rate_limiter and rl_row_id:
+                            await self._rate_limiter.record_actual_usage(
+                                rl_row_id,
+                                input_tokens=usage.get("input_tokens", 0),
+                                output_tokens=usage.get("output_tokens", 0),
+                            )
 
                 # Build the full assistant message
                 assistant_msg = AssistantMessage(content=accumulated_text)
@@ -904,6 +956,14 @@ class ChatModel(
         all_messages = await conv_store.get_messages(conversation_id)
         all_messages = await self._truncate_to_budget(all_messages)
 
+        # Rate-limit check (before entering the stream generator)
+        estimated_tokens = _estimate_tokens(all_messages) if self._rate_limiter else 0
+        if self._rate_limiter:
+            await self._rate_limiter.check_allowed(estimated_tokens=estimated_tokens)
+            rl_row_id = await self._rate_limiter.record_request(estimated_tokens=estimated_tokens)
+        else:
+            rl_row_id = 0
+
         # Create the streaming event generator with tool execution
         async def _stream_with_tools() -> t.AsyncIterator[StreamEvent]:
             max_iterations = (
@@ -949,9 +1009,10 @@ class ChatModel(
                             delay=f"{delay:.1f}s",
                             error=str(e),
                         )
-                        yield StreamChunk(
-                            kind="status",
-                            data={"phase": "retry", "attempt": _retry_attempt, "max_retries": cfg.max_retries, "error": str(e)},
+                        yield StatusEvent(
+                            type="status",
+                            phase="retry",
+                            data={"attempt": _retry_attempt, "max_retries": cfg.max_retries, "error": str(e)},
                         )
                         await asyncio.sleep(delay)
 
@@ -991,6 +1052,13 @@ class ChatModel(
                         resp = event["response"]
                         usage = resp["usage"]
                         finish_reason = resp["finish_reason"]
+                        # Record actual usage from the model.
+                        if self._rate_limiter and rl_row_id:
+                            await self._rate_limiter.record_actual_usage(
+                                rl_row_id,
+                                input_tokens=usage.get("input_tokens", 0),
+                                output_tokens=usage.get("output_tokens", 0),
+                            )
 
                 # Build the full assistant message
                 assistant_msg = AssistantMessage(content=accumulated_text)

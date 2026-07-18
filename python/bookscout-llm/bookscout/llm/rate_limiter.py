@@ -67,11 +67,11 @@ class RateLimiter(LoggingMixin, AsyncResourceMixin):
 
     # -- AsyncResourceMixin --------------------------------------------------
 
-    async def startup(self) -> None:  # noqa: D102
+    async def startup(self) -> None:
         await self._sqlite.startup()
         await self._create_schema()
 
-    async def shutdown(self) -> None:  # noqa: D102
+    async def shutdown(self) -> None:
         await self._sqlite.shutdown()
 
     # -- Schema --------------------------------------------------------------

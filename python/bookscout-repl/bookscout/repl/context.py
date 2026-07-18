@@ -127,6 +127,21 @@ class ReplContext(LoggingMixin, AsyncResourceMixin):
         # LLM (stateless) — from config, not env.
         cm = self._config.chatmodel
         if cm.api_key:
+            # Build rate-limit config from BookScoutConfig → LLMConfig.
+            from bookscout.llm.config import RateLimitConfig as _RLCfg
+            from bookscout.llm.config import _RLWindowConfig as _RLW
+            from bookscout.llm.config import _RLWindowsConfig as _RLWs
+
+            rl = self._config.ratelimit
+            llm_ratelimit = _RLCfg(
+                mode=rl.mode,
+                windows=_RLWs(
+                    rolling_5h=_RLW(limit=rl.windows.rolling_5h.limit),
+                    rolling_weekly=_RLW(limit=rl.windows.rolling_weekly.limit),
+                    rolling_monthly=_RLW(limit=rl.windows.rolling_monthly.limit),
+                ),
+                db_uri=f"sqlite+aiosqlite:///{self._workdir / 'rate_limit.db'}",
+            )
             self._llm = OpenAIChatModel(
                 logger=self.logger,
                 config=LLMConfig(
@@ -136,6 +151,7 @@ class ReplContext(LoggingMixin, AsyncResourceMixin):
                         model=cm.model,
                     ),
                     stateless=cm.stateless,
+                    ratelimit=llm_ratelimit,
                 ),
             )
             await self._llm.startup()

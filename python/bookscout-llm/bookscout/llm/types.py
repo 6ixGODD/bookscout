@@ -218,5 +218,13 @@ class ResponseCompleteEvent(t.TypedDict):
     response: CompletionResponse
 
 
-StreamEvent = TextDeltaEvent | ToolCallDeltaEvent | ToolCallCompleteEvent | ToolResultEvent | ResponseCompleteEvent
+class StatusEvent(t.TypedDict):
+    """Stream event: status update (e.g. retry, rate-limit)."""
+
+    type: t.Literal["status"]
+    phase: str
+    data: dict[str, t.Any]
+
+
+StreamEvent = TextDeltaEvent | ToolCallDeltaEvent | ToolCallCompleteEvent | ToolResultEvent | ResponseCompleteEvent | StatusEvent
 """Union of all streaming event types."""
