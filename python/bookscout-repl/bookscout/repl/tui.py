@@ -1468,7 +1468,10 @@ class BookScoutTui(App[None]):
                 return
             usage = await llm.get_rate_limit_usage()
             if usage is None:
-                self._set_status("  Rate limiting is off")
+                self._chat_markdown += "\n**Rate Limit:** off (configure `ratelimit.mode` to enable)\n\n"
+                log = self.query_one("#chat_log", Markdown)
+                await log.update(self._chat_markdown)
+                log.scroll_end(animate=False)
                 return
             lines = ["**Rate Limit Usage:**"]
             for wname, info in usage.items():
@@ -1746,6 +1749,7 @@ class BookScoutTui(App[None]):
         ("cancel", "Cancel and go back", ("index_select", "builder_select")),
         ("resume", "Resume a previous session", ("select", "chat", "session_select")),
         ("rename", "Rename current session: :rename <NAME>", ("chat",)),
+        ("rm", "Delete a session: :rm <name> | :rm :current", ("chat", "session_select")),
         ("session new", "Create a new session: :session new <name>", ("chat", "session_select")),
         ("session list", "List sessions for current book", ("chat",)),
         ("usage", "Show rate-limit usage stats", ("chat",)),
