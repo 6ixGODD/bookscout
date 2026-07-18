@@ -151,68 +151,6 @@ def _daemonize() -> int:
 
 
 @app.command()
-def simple(
-    config_file: t.Annotated[
-        pathlib.Path | None,
-        typer.Option(
-            "--config",
-            "-c",
-            help=f"Path to YAML config file. Default: {_default_config_path()}",
-        ),
-    ] = None,
-    set_overrides: t.Annotated[
-        list[str] | None,
-        typer.Option(
-            "--set",
-            "-s",
-            help="Override config value (dotted path, e.g. chatmodel.model=deepseek-v4-pro). Repeatable.",
-        ),
-    ] = None,
-    workdir: t.Annotated[
-        str | None,
-        typer.Option("--workdir", "-w", help=f"Workdir root. Default: {_DEFAULT_WORKSPACE}"),
-    ] = None,
-    data_dir: t.Annotated[
-        str | None,
-        typer.Option("--data-dir", help=f"Override data directory. Default: {_DEFAULT_WORKSPACE}"),
-    ] = None,
-    log_level: t.Annotated[
-        str | None,
-        typer.Option("--log-level", "-l", help="Override log level (DEBUG, INFO, WARNING, ERROR)."),
-    ] = None,
-    debug_file: t.Annotated[
-        pathlib.Path | None,
-        typer.Option(
-            "--debug",
-            "-d",
-            help="Append debug logs to a text file. Must be a valid text file (error if binary).",
-        ),
-    ] = None,
-    book_id: t.Annotated[
-        str | None,
-        typer.Option(
-            "--book",
-            "-b",
-            help="Skip the selector and open a specific book id directly.",
-        ),
-    ] = None,
-    resume: t.Annotated[
-        str | None,
-        typer.Option("--resume", "-r", help="Resume a session: --resume for list, --resume <id> for specific"),
-    ] = None,
-) -> None:
-    """Launch the lightweight TUI (prompt_toolkit + rich)."""
-    import asyncio
-
-    bs_config = _resolve_config(config_file, set_overrides, data_dir, log_level, debug_file, workdir)
-    from .simple_tui import SimpleTui
-
-    tui = SimpleTui(bs_config, initial_book_id=book_id, resume_session_id=resume)
-    with contextlib.suppress(KeyboardInterrupt):
-        asyncio.run(tui.run())
-
-
-@app.command()
 def tui(
     config_file: t.Annotated[
         pathlib.Path | None,
