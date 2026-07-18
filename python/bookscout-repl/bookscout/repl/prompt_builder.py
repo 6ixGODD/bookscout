@@ -15,8 +15,8 @@
 
 from __future__ import annotations
 
-import pathlib
 import datetime
+import pathlib
 
 
 class PromptBuilder:

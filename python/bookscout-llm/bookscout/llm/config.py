@@ -115,6 +115,27 @@ class ToolcallConfig(BaseModel):
     )
 
 
+class RetryConfig(BaseModel):
+    """Configuration for LLM call retry with exponential backoff."""
+
+    max_retries: int = Field(
+        default=10,
+        description="Maximum number of retries for transient LLM errors.",
+    )
+    initial_delay: float = Field(
+        default=1.0,
+        description="Initial delay in seconds before first retry.",
+    )
+    max_delay: float = Field(
+        default=30.0,
+        description="Maximum delay in seconds between retries.",
+    )
+    backoff_factor: float = Field(
+        default=2.0,
+        description="Exponential backoff multiplier. delay = initial_delay * backoff_factor^(attempt-1).",
+    )
+
+
 class ThinkingConfig(BaseModel):
     """Per-request thinking / extended-reasoning configuration.
 
@@ -181,6 +202,11 @@ class LLMConfig(BaseModel):
     toolcall: ToolcallConfig = Field(
         default_factory=ToolcallConfig,
         description="Tool-call execution loop configuration.",
+    )
+
+    retry: RetryConfig = Field(
+        default_factory=RetryConfig,
+        description="LLM call retry configuration.",
     )
 
     context_budget: ContextBudgetConfig = Field(

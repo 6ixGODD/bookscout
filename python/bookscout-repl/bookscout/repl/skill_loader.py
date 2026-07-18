@@ -16,7 +16,6 @@
 from __future__ import annotations
 
 import pathlib
-import typing as t
 
 from .config import SkillConfig
 
@@ -35,10 +34,7 @@ class SkillLoader:
 
     def list_skills(self) -> list[dict[str, str]]:
         """Return skill summaries (name + description) for system prompt."""
-        return [
-            {"name": s.name, "description": s.description}
-            for s in self._skills
-        ]
+        return [{"name": s.name, "description": s.description} for s in self._skills]
 
     def get_skill(self, name: str) -> str | None:
         """Get skill content by name. Returns None if not found."""

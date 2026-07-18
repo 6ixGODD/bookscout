@@ -75,9 +75,7 @@ class McpClient:
         }
         resp = await self._client.post(self._url, json=payload, headers=headers)
         if resp.status_code != 200:
-            raise McpClientError(
-                f"MCP server returned {resp.status_code}: {resp.text[:500]}"
-            )
+            raise McpClientError(f"MCP server returned {resp.status_code}: {resp.text[:500]}")
         return resp.json()
 
     async def initialize(self) -> dict:
@@ -86,11 +84,14 @@ class McpClient:
         Returns:
             The server's ``InitializeResult`` as a raw dict.
         """
-        return await self._post("initialize", {
-            "protocolVersion": "2024-11-05",
-            "capabilities": {},
-            "clientInfo": {"name": "bookscout", "version": "0.2.0"},
-        })
+        return await self._post(
+            "initialize",
+            {
+                "protocolVersion": "2024-11-05",
+                "capabilities": {},
+                "clientInfo": {"name": "bookscout", "version": "0.2.0"},
+            },
+        )
 
     async def list_tools(self) -> list[dict]:
         """List all tools exposed by the MCP server.
@@ -115,10 +116,7 @@ class McpClient:
         result = await self._post("tools/call", {"name": name, "arguments": arguments})
         content = result.get("result", {}).get("content", [])
         if content and isinstance(content, list):
-            return "\n".join(
-                c.get("text", "") if isinstance(c, dict) else str(c)
-                for c in content
-            )
+            return "\n".join(c.get("text", "") if isinstance(c, dict) else str(c) for c in content)
         return json.dumps(content)
 
 

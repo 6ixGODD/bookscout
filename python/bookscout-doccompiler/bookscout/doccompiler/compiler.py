@@ -297,19 +297,26 @@ class Compiler(LoggingMixin, AsyncResourceMixin):
 
             # Stage 6: build_indexes
             if self._indexers:
-                selected = [i for i in self._indexers
-                            if index_types is None or i.index_type in index_types]
+                selected = [i for i in self._indexers if index_types is None or i.index_type in index_types]
                 if selected:
                     self._update(stage=CompileStage.BUILD_INDEXES.value)
-                    self.logger.info("stage: build_indexes", count=len(selected), types=[i.index_type for i in selected])
+                    self.logger.info(
+                        "stage: build_indexes", count=len(selected), types=[i.index_type for i in selected]
+                    )
                     idx_root = self._monitor.start("indexes", total=len(selected)) if self._monitor else None
                     for indexer in selected:
-                        idx_tid = self._monitor.start(
-                            f"index:{indexer.index_type}", total=0, parent_id=idx_root
-                        ) if self._monitor else None
+                        idx_tid = (
+                            self._monitor.start(f"index:{indexer.index_type}", total=0, parent_id=idx_root)
+                            if self._monitor
+                            else None
+                        )
                         await self._build_one_index(
-                            indexer, book_id, workspace,
-                            monitor=self._monitor, parent_id=idx_tid, idx_root=idx_root,
+                            indexer,
+                            book_id,
+                            workspace,
+                            monitor=self._monitor,
+                            parent_id=idx_tid,
+                            idx_root=idx_root,
                         )
                     if self._monitor and idx_root:
                         self._monitor.finish(idx_root)
@@ -363,20 +370,29 @@ class Compiler(LoggingMixin, AsyncResourceMixin):
         # patches don't blow up with StoreError when the row doesn't exist
         # (e.g. fresh compile before BUILD_INDEXES).
         await self._books_store.upsert_index(
-            book_id, indexer.index_type, "pending",
+            book_id,
+            indexer.index_type,
+            "pending",
         )
         await self._books_store.set_index_status(
-            book_id, indexer.index_type, "building",
+            book_id,
+            indexer.index_type,
+            "building",
         )
         try:
             self.logger.info("building index", type=indexer.index_type)
             result = await indexer.build_index(
-                book_id, workspace,
-                monitor=monitor, parent_id=parent_id,
+                book_id,
+                workspace,
+                monitor=monitor,
+                parent_id=parent_id,
             )
             await self._books_store.upsert_index(
-                book_id, indexer.index_type, "built",
-                count=result.count, built_at=utcnow_ts(),
+                book_id,
+                indexer.index_type,
+                "built",
+                count=result.count,
+                built_at=utcnow_ts(),
             )
             self.logger.info("index built", type=result.index_type, count=result.count)
             if monitor and parent_id:
@@ -387,7 +403,9 @@ class Compiler(LoggingMixin, AsyncResourceMixin):
             return result
         except Exception as e:
             await self._books_store.upsert_index(
-                book_id, indexer.index_type, "failed",
+                book_id,
+                indexer.index_type,
+                "failed",
                 error=repr(e),
             )
             self.logger.warning("index build failed", type=indexer.index_type, error=repr(e))

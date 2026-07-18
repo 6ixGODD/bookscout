@@ -230,7 +230,7 @@ class GraphStore(LoggingMixin):
         async with self._sqlite.session() as session:
             stmt = select(EntityModel).where(EntityModel.book_id == book_id)
             if node_ids:
-                stmt = stmt.where(EntityModel.source_node_id.in_(node_ids))
+                stmt = stmt.where(EntityModel.source_node_id.in_(node_ids))  # type: ignore[attr-defined]
             rows = (await session.execute(stmt)).scalars().all()
             return [self._row_to_entity(r) for r in rows]
 
@@ -243,7 +243,7 @@ class GraphStore(LoggingMixin):
         async with self._sqlite.session() as session:
             stmt = select(RelationshipModel).where(RelationshipModel.book_id == book_id)
             if node_ids:
-                stmt = stmt.where(RelationshipModel.source_node_id.in_(node_ids))
+                stmt = stmt.where(RelationshipModel.source_node_id.in_(node_ids))  # type: ignore[attr-defined]
             rows = (await session.execute(stmt)).scalars().all()
             return [self._row_to_relationship(r) for r in rows]
 

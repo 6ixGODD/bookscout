@@ -13,7 +13,6 @@
 # limitations under the License.
 from __future__ import annotations
 
-
 import inspect
 import json
 import re
@@ -262,7 +261,7 @@ def _merge_default(field_info: FieldInfo, default: t.Any) -> FieldInfo:
 def __getattr__(name: str) -> t.Any:
     """Lazy-import ``ExternalMcpToolset`` to avoid circular imports."""
     if name == "ExternalMcpToolset":
-        from .mcp_toolset import ExternalMcpToolset as _ext
+        from .mcp_toolset import ExternalMcpToolset as _ext  # noqa: N813
 
         return _ext
     msg = f"module {__name__!r} has no attribute {name!r}"

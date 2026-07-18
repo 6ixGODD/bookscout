@@ -136,6 +136,7 @@ plugins:
           - python/bookscout-llm
           - python/bookscout-logging
           - python/bookscout-mcp
+          - python/bookscout-progress
           - python/bookscout-repl
           - python/bookscout-sqlite
           - python/bookscout-tools

@@ -169,6 +169,28 @@ class ChatModel(
         """
         return estimate_text_tokens(text)
 
+    @staticmethod
+    def _is_retryable(error: Exception) -> bool:
+        """Determine if an LLM error is transient and worth retrying."""
+        from bookscout.llm.exceptions import ContextOverflowError
+        from bookscout.llm.exceptions import ModelNotSupportedError
+        from bookscout.llm.exceptions import RateLimitError
+
+        # Non-retryable types — these will fail again.
+        if isinstance(error, (ContextOverflowError, ModelNotSupportedError, RateLimitError)):
+            return False
+        # Auth / content filter errors are non-retryable.
+        msg = str(error).lower()
+        if any(p in msg for p in ("auth", "401", "403", "content_filter", "invalid_api_key")):
+            return False
+        # Retryable patterns — transient server/connection issues.
+        retryable_patterns = [
+            "rate_limit", "429", "timeout", "connection",
+            "server_error", "500", "502", "503", "overloaded",
+            "api_connection", "apiconnection",
+        ]
+        return any(p in msg for p in retryable_patterns)
+
     async def startup(self) -> None:
         """Initialize resources.
 
@@ -388,8 +410,34 @@ class ChatModel(
                 provider_messages = self._apply_cache_control(provider_messages)
 
             start_time = utcnow_ts()
-            async with self._concurrency_semaphore:
-                raw = await self._complete(provider_messages, provider_tools, opts)
+            # Retry loop for transient errors.
+            import asyncio
+
+            cfg = self.config.retry
+            for _retry_attempt in range(1, cfg.max_retries + 1):
+                try:
+                    async with self._concurrency_semaphore:
+                        raw = await self._complete(provider_messages, provider_tools, opts)
+                    break  # success — exit retry loop
+                except Exception as e:
+                    from bookscout.llm.exceptions import CompletionError
+                    from bookscout.llm.exceptions import LLMError
+
+                    if not isinstance(e, LLMError):
+                        e = CompletionError(f"LLM call failed: {e}")
+                    if not self._is_retryable(e) or _retry_attempt >= cfg.max_retries:
+                        raise
+                    delay = min(
+                        cfg.initial_delay * (cfg.backoff_factor ** (_retry_attempt - 1)),
+                        cfg.max_delay,
+                    )
+                    self.logger.warning(
+                        "LLM call failed, retrying",
+                        attempt=_retry_attempt,
+                        delay=f"{delay:.1f}s",
+                        error=str(e),
+                    )
+                    await asyncio.sleep(delay)
             response = self._convert_response(raw)
 
             elapsed = utcnow_ts() - start_time
@@ -513,7 +561,37 @@ class ChatModel(
                 if self.config.cache.enabled:
                     provider_messages = self._apply_cache_control(provider_messages)
 
-                raw_stream = self._complete_stream(provider_messages, provider_tools, opts)  # type: ignore[arg-type,attr-defined,misc]
+                raw_stream = None
+                import asyncio
+
+                cfg = self.config.retry
+                for _retry_attempt in range(1, cfg.max_retries + 1):
+                    try:
+                        raw_stream = self._complete_stream(provider_messages, provider_tools, opts)  # type: ignore[arg-type,attr-defined,misc]
+                        break  # success
+                    except Exception as e:
+                        from bookscout.llm.exceptions import CompletionError
+                        from bookscout.llm.exceptions import LLMError
+
+                        if not isinstance(e, LLMError):
+                            e = CompletionError(f"LLM stream failed: {e}")
+                        if not self._is_retryable(e) or _retry_attempt >= cfg.max_retries:
+                            raise
+                        delay = min(
+                            cfg.initial_delay * (cfg.backoff_factor ** (_retry_attempt - 1)),
+                            cfg.max_delay,
+                        )
+                        self.logger.warning(
+                            "LLM stream setup failed, retrying",
+                            attempt=_retry_attempt,
+                            delay=f"{delay:.1f}s",
+                            error=str(e),
+                        )
+                        yield StreamChunk(
+                            kind="status",
+                            data={"phase": "retry", "attempt": _retry_attempt, "max_retries": cfg.max_retries, "error": str(e)},
+                        )
+                        await asyncio.sleep(delay)
 
                 # Reset per-iteration accumulators
                 accumulated_text = ""
@@ -845,7 +923,37 @@ class ChatModel(
                 if self.config.cache.enabled:
                     provider_messages = self._apply_cache_control(provider_messages)
 
-                raw_stream = self._complete_stream(provider_messages, provider_tools, opts)  # type: ignore[arg-type,attr-defined,misc]
+                raw_stream = None
+                import asyncio
+
+                cfg = self.config.retry
+                for _retry_attempt in range(1, cfg.max_retries + 1):
+                    try:
+                        raw_stream = self._complete_stream(provider_messages, provider_tools, opts)  # type: ignore[arg-type,attr-defined,misc]
+                        break  # success
+                    except Exception as e:
+                        from bookscout.llm.exceptions import CompletionError
+                        from bookscout.llm.exceptions import LLMError
+
+                        if not isinstance(e, LLMError):
+                            e = CompletionError(f"LLM stream failed: {e}")
+                        if not self._is_retryable(e) or _retry_attempt >= cfg.max_retries:
+                            raise
+                        delay = min(
+                            cfg.initial_delay * (cfg.backoff_factor ** (_retry_attempt - 1)),
+                            cfg.max_delay,
+                        )
+                        self.logger.warning(
+                            "LLM stream setup failed, retrying",
+                            attempt=_retry_attempt,
+                            delay=f"{delay:.1f}s",
+                            error=str(e),
+                        )
+                        yield StreamChunk(
+                            kind="status",
+                            data={"phase": "retry", "attempt": _retry_attempt, "max_retries": cfg.max_retries, "error": str(e)},
+                        )
+                        await asyncio.sleep(delay)
 
                 # Reset per-iteration accumulators
                 accumulated_text = ""

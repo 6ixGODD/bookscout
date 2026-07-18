@@ -165,7 +165,7 @@ class SummaryStore(LoggingMixin, AsyncResourceMixin):
             stmt = select(SummaryModel).where(SummaryModel.book_id == book_id)
             if node_ids:
                 # WHERE book_id = ? AND node_id IN (?, ?, ...)
-                stmt = stmt.where(SummaryModel.node_id.in_(node_ids))
+                stmt = stmt.where(SummaryModel.node_id.in_(node_ids))  # type: ignore[attr-defined]
             rows = (await session.execute(stmt)).scalars().all()
             return [
                 SummaryEntry(

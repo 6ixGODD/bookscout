@@ -33,6 +33,10 @@ class ToolExecutionError(LLMError):
     """Raised when tool execution fails."""
 
 
+class RateLimitError(LLMError):
+    """Raised when a configured rate limit window is exceeded."""
+
+
 class FileUploadError(LLMError):
     """Raised when a file upload operation fails."""
 

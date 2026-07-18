@@ -39,6 +39,7 @@ dependencies = [
   "mkdocs-static-i18n>=1.3",
   "mkdocstrings[python]>=0.29",
   "mypy>=2.1",
+  "numpy>=2",
   "orjson>=3.11.9",
   "pre-commit>=4.6",
   "pydantic>=2.13.4",
@@ -47,6 +48,7 @@ dependencies = [
   "pytest-asyncio>=1.4",
   "rich>=13",
   "ruff>=0.15.20",
+  "scipy>=1",
   "typer>=0.26.8",
 ]
 scripts.bookscout = "scripts.__main__:main"

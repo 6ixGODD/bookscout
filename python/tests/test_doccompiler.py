@@ -199,17 +199,22 @@ async def test_compile_with_index_types_subset(tmp_path, logger):
         def __init__(self, itype):
             self._it = itype
             self._ran = False
+
         @property
         def index_type(self):
             return self._it
+
         async def startup(self):
             pass
+
         async def shutdown(self):
             pass
+
         async def build_index(self, book_id, workspace, *, monitor=None, parent_id=None):
             self._ran = True
             from bookscout.doccompiler import IndexResult
             from bookscout.doccompiler.indexer import IndexProgress
+
             return IndexResult(index_type=self._it, count=1, progress=IndexProgress(1, 1, "done", ""))
 
     chunk_idx = FakeIndexer("chunk")
@@ -260,13 +265,21 @@ async def test_build_one_index_creates_manifest_row_when_absent(tmp_path, logger
 
     class FakeIndexer:
         _it = "chunk"
+
         @property
-        def index_type(self): return self._it
-        async def startup(self): pass
-        async def shutdown(self): pass
+        def index_type(self):
+            return self._it
+
+        async def startup(self):
+            pass
+
+        async def shutdown(self):
+            pass
+
         async def build_index(self, book_id, workspace, *, monitor=None, parent_id=None):
             from bookscout.doccompiler.indexer import IndexProgress
             from bookscout.doccompiler.indexer import IndexResult
+
             return IndexResult(index_type=self._it, count=2, progress=IndexProgress(2, 2, "done", ""))
 
     compiler = Compiler(
@@ -281,14 +294,19 @@ async def test_build_one_index_creates_manifest_row_when_absent(tmp_path, logger
     book_id = "book_test_freshmanifest"
     # Manifest FK -> books.id: need a row first.
     from bookscout.books import Book
+
     await store.create_book(Book.new(book_id=book_id, title="Test"))
     workspace = BookWorkspace.create(tmp_path, book_id)
 
     # Manifest row does NOT exist yet; calling _build_one_index must succeed
     # and end with status == 'built' (not raise StoreError).
     result = await compiler._build_one_index(
-        FakeIndexer(), book_id, workspace,
-        monitor=None, parent_id=None, idx_root=None,
+        FakeIndexer(),
+        book_id,
+        workspace,
+        monitor=None,
+        parent_id=None,
+        idx_root=None,
     )
     assert result.count == 2
 
@@ -325,13 +343,21 @@ async def test_task_manager_run_index_creates_manifest_row_when_absent(tmp_path,
 
     class FakeIndexer:
         _it = "summary"
+
         @property
-        def index_type(self): return self._it
-        async def startup(self): pass
-        async def shutdown(self): pass
+        def index_type(self):
+            return self._it
+
+        async def startup(self):
+            pass
+
+        async def shutdown(self):
+            pass
+
         async def build_index(self, book_id, workspace, *, monitor=None, parent_id=None):
             from bookscout.doccompiler.indexer import IndexProgress
             from bookscout.doccompiler.indexer import IndexResult
+
             return IndexResult(index_type=self._it, count=3, progress=IndexProgress(3, 3, "done", ""))
 
     book_id = "book_test_tm_runindex"
@@ -341,6 +367,7 @@ async def test_task_manager_run_index_creates_manifest_row_when_absent(tmp_path,
     (book_workspace_root / "CONTENT.md").write_text("# dummy\n", encoding="utf-8")
     # Manifest FK -> books.id: need a row first.
     from bookscout.books import Book
+
     await store.create_book(Book.new(book_id=book_id, title="Test"))
 
     tm = TaskManager(
@@ -358,6 +385,7 @@ async def test_task_manager_run_index_creates_manifest_row_when_absent(tmp_path,
     task_id = await tm.start_index(book_id, ["summary"])
     # Poll until task exits
     import time
+
     deadline = time.monotonic() + 5.0
     while time.monotonic() < deadline:
         prog = tm.get_progress(task_id)

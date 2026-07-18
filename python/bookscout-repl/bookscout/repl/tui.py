@@ -1636,6 +1636,11 @@ class BookScoutTui(App[None]):
                 self._chat_markdown += "\n*[auto-compacted]*\n\n"
                 log.update(self._chat_markdown)
                 log.scroll_end(animate=False)
+            elif phase == "retry":
+                attempt = data.get("attempt", "?")
+                max_r = data.get("max_retries", "?")
+                err_short = str(data.get("error", ""))[:60]
+                self._set_status(f"  LLM error, retrying ({attempt}/{max_r}): {err_short}")
 
     def _flush_streaming(self) -> None:
         if not self._streaming_started:

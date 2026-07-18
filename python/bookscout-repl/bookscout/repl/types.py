@@ -12,7 +12,7 @@ class MessageBase(t.TypedDict):
 
 
 class ErrorMessage(MessageBase):
-    type: t.Literal["error"]
+    type: t.Literal["error"]  # type: ignore[misc]
     """Error message type."""
 
     error: str
@@ -20,7 +20,7 @@ class ErrorMessage(MessageBase):
 
 
 class ShutdownACKMessage(MessageBase):
-    type: t.Literal["shutdown_ack"]
+    type: t.Literal["shutdown_ack"]  # type: ignore[misc]
     """Shutdown ACK message type."""
 
 
@@ -42,7 +42,7 @@ class _Book(t.TypedDict):
 
 
 class BooksListedMessage(MessageBase):
-    type: t.Literal["books_listed"]
+    type: t.Literal["books_listed"]  # type: ignore[misc]
     """Books listed message type."""
 
     books: list[_Book]
@@ -50,7 +50,7 @@ class BooksListedMessage(MessageBase):
 
 
 class TaskStartedMessage(MessageBase):
-    type: t.Literal["task_started"]
+    type: t.Literal["task_started"]  # type: ignore[misc]
     """Task started message type."""
 
     task_id: str
@@ -58,7 +58,7 @@ class TaskStartedMessage(MessageBase):
 
 
 class TaskProgressMessage(MessageBase):
-    type: t.Literal["task_progress"]
+    type: t.Literal["task_progress"]  # type: ignore[misc]
     """Task progress message type."""
 
     task_id: str
@@ -96,7 +96,7 @@ class TaskProgressMessage(MessageBase):
 
 
 class StreamChunkMessage(MessageBase):
-    type: t.Literal["stream_chunk"]
+    type: t.Literal["stream_chunk"]  # type: ignore[misc]
     """Stream chunk message type."""
 
     kind: str
@@ -108,7 +108,7 @@ class StreamChunkMessage(MessageBase):
 
 
 class ChatDoneMessage(MessageBase):
-    type: t.Literal["chat_done"]
+    type: t.Literal["chat_done"]  # type: ignore[misc]
     """Chat done message type."""
 
     state: dict[str, t.Any]

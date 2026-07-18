@@ -28,7 +28,6 @@ Usage::
 from __future__ import annotations
 
 import inspect
-import json
 import typing as t
 from typing import Annotated
 
@@ -66,7 +65,7 @@ def _make_mcp_wrapper(client: McpClient, tool_def: dict) -> BaseTool:
     input_schema = tool_def.get("inputSchema", {})
     properties = input_schema.get("properties", {})
 
-    async def _call(self, **kwargs: t.Any) -> str:  # noqa: ANN401
+    async def _call(_, **kwargs: t.Any) -> str:
         try:
             async with client as c:
                 await c.initialize()
@@ -81,8 +80,8 @@ def _make_mcp_wrapper(client: McpClient, tool_def: dict) -> BaseTool:
         return SchemaDict(
             type="function",
             function=FunctionDict(
-                name=self.__function_name__,  # noqa: F821
-                description=self.__function_description__,  # noqa: F821
+                name=self.__function_name__,
+                description=self.__function_description__,
                 parameters=input_schema,
             ),
         )
