@@ -46,6 +46,45 @@ class MinerUConfig(BaseModel):
     api_token: str = Field(default="", description="MinerU API token")
 
 
+class RateLimitWindowConfig(BaseModel):
+    """Limit for a single rolling window. 0 = unlimited."""
+
+    limit: int = Field(
+        default=0,
+        description="Max units allowed in this window. 0 = unlimited.",
+    )
+
+
+class RateLimitWindowsConfig(BaseModel):
+    """Rolling-window limits for rate limiting."""
+
+    rolling_5h: RateLimitWindowConfig = Field(
+        default_factory=RateLimitWindowConfig,
+        description="5-hour rolling window.",
+    )
+    rolling_weekly: RateLimitWindowConfig = Field(
+        default_factory=RateLimitWindowConfig,
+        description="7-day (weekly) rolling window.",
+    )
+    rolling_monthly: RateLimitWindowConfig = Field(
+        default_factory=RateLimitWindowConfig,
+        description="30-day (monthly) rolling window.",
+    )
+
+
+class RateLimitConfig(BaseModel):
+    """Rate limiting configuration for the REPL."""
+
+    mode: str = Field(
+        default="off",
+        description='Rate limit mode: "requests", "tokens", or "off".',
+    )
+    windows: RateLimitWindowsConfig = Field(
+        default_factory=RateLimitWindowsConfig,
+        description="Rolling-window limits.",
+    )
+
+
 class LoggingTargetConfig(BaseModel):
     """A single logging target (stdout, stderr, or file)."""
 
@@ -166,6 +205,7 @@ class BookScoutConfig(BaseSettings):
     )
 
     chatmodel: ChatModelConfig = Field(default_factory=ChatModelConfig)
+    ratelimit: RateLimitConfig = Field(default_factory=RateLimitConfig)
     embedding: EmbeddingConfig = Field(default_factory=EmbeddingConfig)
     mineru: MinerUConfig = Field(default_factory=MinerUConfig)
     logging: LoggingConfigSection = Field(default_factory=LoggingConfigSection)
@@ -272,5 +312,8 @@ __all__ = [
     "LoggingTargetConfig",
     "McpServerConfig",
     "MinerUConfig",
+    "RateLimitConfig",
+    "RateLimitWindowConfig",
+    "RateLimitWindowsConfig",
     "SkillConfig",
 ]

@@ -136,6 +136,49 @@ class RetryConfig(BaseModel):
     )
 
 
+class _RLWindowConfig(BaseModel):
+    """Limit for a single rolling window. 0 = unlimited."""
+
+    limit: int = Field(
+        default=0,
+        description="Max units allowed in this window. 0 = unlimited.",
+    )
+
+
+class _RLWindowsConfig(BaseModel):
+    """Rolling-window limits for rate limiting."""
+
+    rolling_5h: _RLWindowConfig = Field(
+        default_factory=_RLWindowConfig,
+        description="5-hour rolling window.",
+    )
+    rolling_weekly: _RLWindowConfig = Field(
+        default_factory=_RLWindowConfig,
+        description="7-day (weekly) rolling window.",
+    )
+    rolling_monthly: _RLWindowConfig = Field(
+        default_factory=_RLWindowConfig,
+        description="30-day (monthly) rolling window.",
+    )
+
+
+class RateLimitConfig(BaseModel):
+    """Configuration for LLM rate limiting."""
+
+    mode: str = Field(
+        default="off",
+        description='Rate limit mode: "requests", "tokens", or "off".',
+    )
+    windows: _RLWindowsConfig = Field(
+        default_factory=_RLWindowsConfig,
+        description="Rolling-window limits.",
+    )
+    db_uri: str = Field(
+        default="sqlite+aiosqlite:///./rate_limit.db",
+        description="SQLite URI for rate-limit counter persistence.",
+    )
+
+
 class ThinkingConfig(BaseModel):
     """Per-request thinking / extended-reasoning configuration.
 
@@ -207,6 +250,11 @@ class LLMConfig(BaseModel):
     retry: RetryConfig = Field(
         default_factory=RetryConfig,
         description="LLM call retry configuration.",
+    )
+
+    ratelimit: RateLimitConfig = Field(
+        default_factory=RateLimitConfig,
+        description="Rate limiting configuration.",
     )
 
     context_budget: ContextBudgetConfig = Field(

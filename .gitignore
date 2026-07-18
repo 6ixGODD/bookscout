@@ -43,3 +43,4 @@ opencode.local.*json
 llm.db
 llm_blobs/
 bookscout.bat
+rate_limit.db
