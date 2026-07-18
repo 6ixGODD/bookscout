@@ -165,6 +165,19 @@ class SessionManager(LoggingMixin, AsyncResourceMixin):
             sid=session_id,
         )
 
+    async def delete(self, session_id: str) -> None:
+        """Delete a session and its message log (not ReadingMode SQLite)."""
+        await self._sqlite.exec(
+            "DELETE FROM message_log WHERE session_id = :sid",
+            readonly=False,
+            sid=session_id,
+        )
+        await self._sqlite.exec(
+            "DELETE FROM session WHERE session_id = :sid",
+            readonly=False,
+            sid=session_id,
+        )
+
     async def _save(self, session: Session) -> None:
         await self._sqlite.exec(
             """INSERT OR REPLACE INTO session (

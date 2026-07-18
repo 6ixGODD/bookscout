@@ -1091,6 +1091,29 @@ class BookScoutTui(App[None]):
             self.exit()
             return
 
+        if low == ":rm":
+            if self._session_list and 0 <= self._session_focus_idx < len(self._session_list):
+                session = self._session_list[self._session_focus_idx]
+                assert self._repl_context is not None
+                await self._repl_context.delete_session(session.session_id)
+                if self._session_select_cross_book:
+                    self._session_list = await self._repl_context.session_manager.list_all()
+                elif self._selected_book:
+                    self._session_list = await self._repl_context.session_manager.list_by_book(self._selected_book.id)
+                if not self._session_list:
+                    await self._refresh_books_list()
+                    self.phase = "select"
+                    self._set_status(f"  {len(self._books)} book(s)")
+                    self._focus_input()
+                    return
+                self._session_focus_idx = min(self._session_focus_idx, len(self._session_list) - 1)
+                if self._session_select_cross_book:
+                    await self._render_cross_book_session_list()
+                else:
+                    await self._render_session_list()
+                self._set_status(f"  deleted. {len(self._session_list)} session(s) remaining")
+            return
+
         self._set_status(f"  Unknown command: {text}")
 
     # -- Compile phase --
@@ -1354,6 +1377,56 @@ class BookScoutTui(App[None]):
                 await self._repl_context.session_manager.rename(self._current_session.session_id, new_name)
                 self._current_session = await self._repl_context.session_manager.get(self._current_session.session_id)
                 self._set_status(f"  renamed to: {new_name}")
+            return
+
+        if low.startswith(":rm"):
+            parts = text.split(None, 1)
+            if len(parts) < 2:
+                self._set_status("  usage: :rm <name> | :rm :current")
+                return
+            target = parts[1].strip()
+            assert self._repl_context is not None
+            mgr = self._repl_context.session_manager
+            if target == ":current":
+                if not self._current_session:
+                    self._set_status("  no active session")
+                    return
+                sid = self._current_session.session_id
+                await self._repl_context.delete_session(sid)
+                self._current_session = None
+                self._session_id = None
+                if self._selected_book:
+                    sessions = await mgr.list_by_book(self._selected_book.id)
+                    if sessions:
+                        await self._enter_session_select(self._selected_book, sessions)
+                    else:
+                        await self._refresh_books_list()
+                        self.phase = "select"
+                        self._set_status(f"  {len(self._books)} book(s)")
+                self._focus_input()
+                return
+            if not self._selected_book:
+                self._set_status("  no book selected")
+                return
+            sessions = await mgr.list_by_book(self._selected_book.id)
+            match = next((s for s in sessions if s.name == target), None)
+            if match is None:
+                self._set_status(f"  session not found: {target}")
+                return
+            await self._repl_context.delete_session(match.session_id)
+            if self._current_session and self._current_session.session_id == match.session_id:
+                self._current_session = None
+                self._session_id = None
+                sessions = await mgr.list_by_book(self._selected_book.id)
+                if sessions:
+                    await self._enter_session_select(self._selected_book, sessions)
+                else:
+                    await self._refresh_books_list()
+                    self.phase = "select"
+                    self._set_status(f"  {len(self._books)} book(s)")
+            else:
+                self._set_status(f"  deleted session: {target}")
+            self._focus_input()
             return
 
         if low.startswith(":session new "):

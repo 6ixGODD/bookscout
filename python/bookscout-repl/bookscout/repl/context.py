@@ -435,6 +435,11 @@ class ReplContext(LoggingMixin, AsyncResourceMixin):
         for sid in keys_to_pop:
             self._modes.pop(sid, None)
 
+    async def delete_session(self, session_id: str) -> None:
+        """Delete a session: remove from mode cache, then delete from store."""
+        self._modes.pop(session_id, None)
+        await self.session_manager.delete(session_id)
+
     def get_task_progress(self, task_id: str) -> TaskProgress | None:
         """Poll progress for a running task."""
         return self.task_manager.get_progress(task_id)

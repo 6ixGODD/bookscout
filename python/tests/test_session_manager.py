@@ -109,3 +109,19 @@ async def test_load_messages_isolation(session_manager: SessionManager):
     assert m1[0]["content"] == "for s1"
     assert len(m2) == 1
     assert m2[0]["content"] == "for s2"
+
+
+@pytest.mark.asyncio
+async def test_delete(session_manager: SessionManager):
+    sess = await session_manager.create(book_id="book_1", name="ToDelete")
+    # Add some messages.
+    await session_manager.append_message(sess.session_id, role="user", content="hello")
+    await session_manager.append_message(sess.session_id, role="assistant", content="hi")
+    # Delete.
+    await session_manager.delete(sess.session_id)
+    # Session is gone.
+    loaded = await session_manager.get(sess.session_id)
+    assert loaded is None
+    # Messages are gone.
+    msgs = await session_manager.load_messages(sess.session_id)
+    assert msgs == []
