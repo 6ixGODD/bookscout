@@ -12,6 +12,19 @@ chatmodel:
   model: 'deepseek-v4-flash'
   stateless: true
 
+# Rate limiting for LLM API calls.
+# mode: "requests" = limit API call count, "tokens" = limit token consumption, "off" = no limits.
+# Limits of 0 mean unlimited for that window.
+ratelimit:
+  mode: 'off'
+  windows:
+    rolling_5h:
+      limit: 0
+    rolling_weekly:
+      limit: 0
+    rolling_monthly:
+      limit: 0
+
 embedding:
   api_key: '' # Set via env: BOOKSCOUT_EMBEDDING__API_KEY
   base_url: 'https://dashscope.aliyuncs.com/compatible-mode/v1'

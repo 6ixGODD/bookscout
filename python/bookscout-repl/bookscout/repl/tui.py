@@ -1467,20 +1467,22 @@ class BookScoutTui(App[None]):
                 self._set_status("  LLM not configured")
                 return
             usage = await llm.get_rate_limit_usage()
+            rl_mode = self._repl_context._config.ratelimit.mode
             if usage is None:
-                self._chat_markdown += "\n**Rate Limit:** off (configure `ratelimit.mode` to enable)\n\n"
-                log = self.query_one("#chat_log", Markdown)
-                await log.update(self._chat_markdown)
-                log.scroll_end(animate=False)
-                return
-            lines = ["**Rate Limit Usage:**"]
-            for wname, info in usage.items():
-                limit = info["limit"]
-                if limit == 0:
-                    lines.append(f"- {wname}: unlimited (requests={info['requests']}, tokens={info['tokens_used']})")
-                else:
-                    lines.append(f"- {wname}: {info['requests']}req / {info['tokens_used']}tok of {limit} limit")
-            self._chat_markdown += "\n" + "\n".join(lines) + "\n\n"
+                self._chat_markdown += "\n**Rate Limit:** off (no limits configured)\n\n"
+            else:
+                mode_label = "requests" if rl_mode == "requests" else "tokens"
+                unit = "req" if rl_mode == "requests" else "tok"
+                lines = [f"**Rate Limit:** {mode_label} mode"]
+                for wname, info in usage.items():
+                    limit = info["limit"]
+                    used = info["requests"] if rl_mode == "requests" else info["tokens_used"]
+                    if limit == 0:
+                        lines.append(f"  {wname}: {used} {unit} (unlimited)")
+                    else:
+                        remaining = max(0, limit - used)
+                        lines.append(f"  {wname}: {used:,} / {limit:,} {unit}  ({remaining:,} remaining)")
+                self._chat_markdown += "\n" + "\n".join(lines) + "\n\n"
             log = self.query_one("#chat_log", Markdown)
             await log.update(self._chat_markdown)
             log.scroll_end(animate=False)

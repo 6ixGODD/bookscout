@@ -11,6 +11,16 @@ chatmodel:
   model: "deepseek-v4-flash"
   stateless: true
 
+ratelimit:
+  mode: "requests"
+  windows:
+    rolling_5h:
+      limit: 1000
+    rolling_weekly:
+      limit: 5000
+    rolling_monthly:
+      limit: 20000
+
 embedding:
   api_key: ""
   base_url: "https://dashscope.aliyuncs.com/compatible-mode/v1"
