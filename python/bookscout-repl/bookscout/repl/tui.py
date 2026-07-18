@@ -972,7 +972,7 @@ class BookScoutTui(App[None]):
                     content = msg.get("content", "")
                     if role == "user":
                         escaped = content.replace("\n", "\n> ")
-                        md_parts.append(f"\n\n> {escaped}\n\n")
+                        md_parts.append(f"\n\n> {escaped}\n\n---\n\n")
                     elif role == "assistant":
                         md_parts.append(f"{content}\n\n")
                 self._chat_markdown = "".join(md_parts)
@@ -1523,7 +1523,7 @@ class BookScoutTui(App[None]):
         assert self._session_id is not None
         # Append the user turn as a markdown blockquote and flush to the widget.
         escaped = user_input.replace("\n", "\n> ")
-        self._chat_markdown += f"\n\n> {escaped}\n\n"
+        self._chat_markdown += f"\n\n> {escaped}\n\n---\n\n"
         log = self.query_one("#chat_log", Markdown)
         await log.update(self._chat_markdown)
         log.scroll_end(animate=False)
