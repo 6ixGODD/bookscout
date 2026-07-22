@@ -37,6 +37,8 @@ dependencies = [
   "uvicorn>=0.34",
 ]
 
+scripts.bookscout-mcp = "bookscout.mcp.stdio:main"
+
 [tool.setuptools]
 package-dir = { "" = "." }
 
