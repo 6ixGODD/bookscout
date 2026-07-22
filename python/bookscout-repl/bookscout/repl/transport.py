@@ -104,7 +104,44 @@ class StdioTransport(Transport):
         return json.loads(body.decode("utf-8"))
 
 
+class WebSocketTransport(Transport):
+    """WebSocket-based transport — one JSON message per frame.
+
+    Designed for the Electron desktop client. Each message is a JSON
+    object sent/received as a single WebSocket text frame.
+
+    Args:
+        websocket: A Starlette/FastAPI ``WebSocket`` connection.
+        logger: Logger instance.
+    """
+
+    def __init__(self, websocket: t.Any, logger: Logger) -> None:
+        super().__init__(logger=logger)
+        self._ws = websocket
+
+    async def send(self, message: dict[str, t.Any]) -> None:
+        """Send a JSON message over the WebSocket."""
+        await self._ws.send_json(message)
+
+    async def receive(self) -> dict[str, t.Any] | None:
+        """Receive a JSON message from the WebSocket.
+
+        Returns:
+            A dict, or ``None`` if the client has disconnected.
+        """
+        try:
+            data = await self._ws.receive_json()
+            if not isinstance(data, dict):
+                self.logger.warning("non-dict WebSocket message", type=type(data).__name__)
+                return None
+            return data
+        except Exception:
+            # WebSocketDisconnect or any connection error → treat as EOF.
+            return None
+
+
 __all__ = [
     "StdioTransport",
     "Transport",
+    "WebSocketTransport",
 ]

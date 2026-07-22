@@ -32,12 +32,14 @@ dependencies = [
   "bookscout-logging",
   "bookscout-tools",
   "bookscout-vectorstore",
+  "fastapi>=0.115",
   "pydantic-settings>=2.14",
   "python-dotenv>=1.1",
   "pyyaml>=6",
   "rich>=15",
   "textual>=8.2.8",
   "typer>=0.26.8",
+  "uvicorn[standard]>=0.30",
 ]
 
 scripts.bookscout-repl = "bookscout.repl.__main__:cli_main"

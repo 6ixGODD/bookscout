@@ -1,10 +1,10 @@
-"""REPL Server — stdio front-end over :class:`ReplContext`.
+"""REPL Server — transport-agnostic front-end over :class:`ReplContext`.
 
 Receives JSON requests over a :class:`Transport` and dispatches them to
 the shared :class:`ReplContext`. Streaming results are sent back as
 individual events. The TUI uses the same context directly (no transport);
-this module exists to support external clients such as the MCP server or
-a future web front-end.
+this module supports external clients such as the MCP server, the Electron
+desktop app, or any WebSocket client.
 """
 
 from __future__ import annotations
@@ -85,6 +85,16 @@ class ReplServer(LoggingMixin):
                 await self._handle_get_progress(req_id, request)
             elif req_type == "chat":
                 await self._handle_chat(req_id, request)
+            elif req_type == "list_sessions":
+                await self._handle_list_sessions(req_id)
+            elif req_type == "create_session":
+                await self._handle_create_session(req_id, request)
+            elif req_type == "delete_session":
+                await self._handle_delete_session(req_id, request)
+            elif req_type == "rename_session":
+                await self._handle_rename_session(req_id, request)
+            elif req_type == "load_messages":
+                await self._handle_load_messages(req_id, request)
             elif req_type == "shutdown":
                 await self._transport.send({"type": "shutdown_ack", "request_id": req_id})
                 asyncio.get_event_loop().stop()
@@ -157,32 +167,26 @@ class ReplServer(LoggingMixin):
         })
 
     async def _handle_chat(self, req_id: str, request: dict[str, t.Any]) -> None:
-        book_id = request.get("book_id", "")
         user_input = request.get("user_input", "")
         session_id = request.get("session_id", "")
-        if not book_id or not user_input:
-            await self._send_error(req_id, "book_id and user_input required")
+        if not user_input:
+            await self._send_error(req_id, "user_input required")
             return
 
-        # If no session_id provided, create a default session for this book.
+        # If no session_id provided, create a new session.
         if not session_id:
             try:
-                sessions = await self._context.session_manager.list_by_book(book_id)
-                if sessions:
-                    session_id = sessions[0].session_id
-                else:
-                    session = await self._context.session_manager.create(
-                        book_id=book_id,
-                        name="default",
-                        kind="chat",
-                    )
-                    session_id = session.session_id
+                session = await self._context.session_manager.create(
+                    name="default",
+                    kind="chat",
+                )
+                session_id = session.session_id
             except Exception as e:
                 await self._send_error(req_id, f"failed to create session: {e}")
                 return
 
         try:
-            async for chunk in self._context.chat(book_id, session_id, user_input):
+            async for chunk in self._context.chat(session_id, user_input):
                 await self._send({
                     "type": "stream_chunk",
                     "request_id": req_id,
@@ -195,7 +199,7 @@ class ReplServer(LoggingMixin):
             await self._send_error(req_id, str(e))
             return
 
-        mode = await self._context.get_or_create_mode(book_id, session_id)
+        mode = await self._context.get_or_create_mode(session_id)
         if mode is not None:
             await self._send({
                 "type": "chat_done",
@@ -204,6 +208,73 @@ class ReplServer(LoggingMixin):
             })
         else:
             await self._send({"type": "chat_done", "request_id": req_id})
+
+    async def _handle_list_sessions(self, req_id: str) -> None:
+        sessions = await self._context.session_manager.list_all()
+        await self._send({
+            "type": "sessions_listed",
+            "request_id": req_id,
+            "sessions": [
+                {
+                    "session_id": s.session_id,
+                    "name": s.name,
+                    "kind": s.kind,
+                    "created_at": s.created_at,
+                    "updated_at": s.updated_at,
+                    "turn_count": s.turn_count,
+                    "status": s.status,
+                }
+                for s in sessions
+            ],
+        })
+
+    async def _handle_create_session(self, req_id: str, request: dict[str, t.Any]) -> None:
+        name = request.get("name", "New Session")
+        kind = request.get("kind", "chat")
+        session = await self._context.session_manager.create(name=name, kind=kind)
+        await self._send({
+            "type": "session_created",
+            "request_id": req_id,
+            "session": {
+                "session_id": session.session_id,
+                "name": session.name,
+                "kind": session.kind,
+                "created_at": session.created_at,
+                "updated_at": session.updated_at,
+                "turn_count": session.turn_count,
+                "status": session.status,
+            },
+        })
+
+    async def _handle_delete_session(self, req_id: str, request: dict[str, t.Any]) -> None:
+        session_id = request.get("session_id", "")
+        if not session_id:
+            await self._send_error(req_id, "session_id required")
+            return
+        await self._context.session_manager.delete(session_id)
+        await self._send({"type": "session_deleted", "request_id": req_id, "session_id": session_id})
+
+    async def _handle_rename_session(self, req_id: str, request: dict[str, t.Any]) -> None:
+        session_id = request.get("session_id", "")
+        name = request.get("name", "")
+        if not session_id or not name:
+            await self._send_error(req_id, "session_id and name required")
+            return
+        await self._context.session_manager.rename(session_id, name)
+        await self._send({"type": "session_renamed", "request_id": req_id, "session_id": session_id, "name": name})
+
+    async def _handle_load_messages(self, req_id: str, request: dict[str, t.Any]) -> None:
+        session_id = request.get("session_id", "")
+        if not session_id:
+            await self._send_error(req_id, "session_id required")
+            return
+        messages = await self._context.session_manager.load_messages(session_id)
+        await self._send({
+            "type": "messages_loaded",
+            "request_id": req_id,
+            "session_id": session_id,
+            "messages": messages,
+        })
 
 
 __all__ = ["ReplServer"]

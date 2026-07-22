@@ -34,10 +34,12 @@ from .config import BookScoutConfig
 from .context import ReplContext
 from .transport import StdioTransport
 from .transport import Transport
+from .transport import WebSocketTransport
 
 __all__ = [
     "BookScoutConfig",
     "ReplContext",
     "StdioTransport",
     "Transport",
+    "WebSocketTransport",
 ]

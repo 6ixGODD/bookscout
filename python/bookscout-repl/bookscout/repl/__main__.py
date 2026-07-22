@@ -4,10 +4,12 @@ Subcommands::
 
     bookscout-repl tui   --config config.yaml --set chatmodel.model=...
     bookscout-repl serve --config config.yaml [--daemon]
+    bookscout-repl ws    --config config.yaml --port 18732
 
 Both subcommands share the same config resolution (YAML → env → --set overrides).
 ``tui`` runs an in-process Textual front-end over :class:`ReplContext`.
 ``serve`` runs the stdio REPL server (transport over ReplContext).
+``ws`` runs the WebSocket server for the Electron desktop client.
 """
 
 from __future__ import annotations
@@ -188,24 +190,12 @@ def tui(
             help="Append debug logs to a text file. Must be a valid text file (error if binary).",
         ),
     ] = None,
-    book_id: t.Annotated[
-        str | None,
-        typer.Option(
-            "--book",
-            "-b",
-            help="Skip the selector and open a specific book id directly.",
-        ),
-    ] = None,
-    resume: t.Annotated[
-        str | None,
-        typer.Option("--resume", "-r", help="Resume a session: --resume for list, --resume <id> for specific"),
-    ] = None,
 ) -> None:
     """Launch the interactive Textual TUI."""
     bs_config = _resolve_config(config_file, set_overrides, data_dir, log_level, debug_file, workdir)
     from .tui_textual import BookScoutTui
 
-    tui_app = BookScoutTui(bs_config, initial_book_id=book_id, resume_session_id=resume)
+    tui_app = BookScoutTui(bs_config)
     with contextlib.suppress(KeyboardInterrupt):
         tui_app.run()
     os._exit(0)
@@ -273,6 +263,52 @@ def serve(
 
     with contextlib.suppress(KeyboardInterrupt):
         asyncio.run(_run_server(server))
+
+
+@app.command()
+def ws(
+    config_file: t.Annotated[
+        pathlib.Path | None,
+        typer.Option(
+            "--config",
+            "-c",
+            help=f"Path to YAML config file. Default: {_default_config_path()}",
+        ),
+    ] = None,
+    set_overrides: t.Annotated[
+        list[str] | None,
+        typer.Option(
+            "--set",
+            "-s",
+            help="Override config value (dotted path, e.g. chatmodel.model=deepseek-v4-pro). Repeatable.",
+        ),
+    ] = None,
+    workdir: t.Annotated[
+        str | None,
+        typer.Option("--workdir", "-w", help=f"Workdir root. Default: {_DEFAULT_WORKSPACE}"),
+    ] = None,
+    data_dir: t.Annotated[
+        str | None,
+        typer.Option("--data-dir", help=f"Override data directory. Default: {_DEFAULT_WORKSPACE}"),
+    ] = None,
+    log_level: t.Annotated[
+        str | None,
+        typer.Option("--log-level", "-l", help="Override log level (DEBUG, INFO, WARNING, ERROR)."),
+    ] = None,
+    port: t.Annotated[
+        int,
+        typer.Option("--port", "-p", help="WebSocket server port. Default: 18732."),
+    ] = 18732,
+) -> None:
+    """Run the WebSocket REPL server for the Electron desktop client."""
+    import asyncio
+
+    from .ws_server import run_ws_server
+
+    bs_config = _resolve_config(config_file, set_overrides, data_dir, log_level, None, workdir)
+
+    with contextlib.suppress(KeyboardInterrupt):
+        asyncio.run(run_ws_server(bs_config, port=port))
 
 
 async def _run_server(server: t.Any) -> None:
