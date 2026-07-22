@@ -1,0 +1,17 @@
+{
+  "name": "bookscout-openclaw-extension",
+  "version": "0.1.0",
+  "description": "BookScout — compile, index, search, and read books. Deep integration with OpenClaw.",
+  "main": "index.cjs",
+  "author": "BoChen SHEN <6goddddddd@gmail.com>",
+  "license": "Apache-2.0",
+  "keywords": [
+    "openclaw",
+    "openclawx",
+    "bookscout",
+    "books",
+    "mcp",
+    "pdf",
+    "epub"
+  ]
+}

@@ -1,0 +1,25 @@
+# BookScout — Hermes Agent MCP Configuration
+#
+# Add this to your ~/.hermes/config.yaml under the mcp_servers key.
+# Or use the Profile Builder web UI to add the MCP server.
+#
+# Prerequisites:
+#   - BookScout installed: pip install bookscout-mcp
+#   - bookscout-mcp available in PATH
+#   - Configuration at ~/.bookscout/config.yaml
+
+mcp_servers:
+  bookscout:
+    command: bookscout-mcp
+    args: []
+    # Optional: add environment variables
+    # env:
+    #   BOOKSCOUT_DATA_DIR: /path/to/data
+
+# After adding this config, enable the MCP server:
+#   hermes mcp enable bookscout
+#
+# Or via Profile Builder:
+#   1. Open http://127.0.0.1:9119/profiles/new
+#   2. Add MCP Server → command: bookscout-mcp
+#   3. Save profile

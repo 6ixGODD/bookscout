@@ -1,0 +1,12 @@
+{
+  "name": "bookscout",
+  "description": "BookScout — compile, index, search, and read books. Add PDFs/EPUBs to your library, build semantic indexes, and query book content naturally.",
+  "version": "0.1.0",
+  "author": {
+    "name": "BoChen SHEN",
+    "email": "6goddddddd@gmail.com"
+  },
+  "homepage": "https://github.com/user/bookscout",
+  "repository": "https://github.com/user/bookscout",
+  "license": "Apache-2.0"
+}

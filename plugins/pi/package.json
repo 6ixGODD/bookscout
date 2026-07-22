@@ -1,0 +1,22 @@
+{
+  "name": "@bookscout/pi-extension",
+  "version": "0.1.0",
+  "description": "BookScout — compile, index, search, and read books. Deep integration with Pi coding agent.",
+  "main": "index.ts",
+  "author": "BoChen SHEN <6goddddddd@gmail.com>",
+  "license": "Apache-2.0",
+  "keywords": [
+    "pi",
+    "pi-coding-agent",
+    "bookscout",
+    "books",
+    "mcp",
+    "pdf",
+    "epub",
+    "search",
+    "index"
+  ],
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": ">=0.79.0"
+  }
+}

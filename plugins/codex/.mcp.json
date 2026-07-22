@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "bookscout": {
+      "type": "stdio",
+      "command": "bookscout-mcp",
+      "args": []
+    }
+  }
+}
